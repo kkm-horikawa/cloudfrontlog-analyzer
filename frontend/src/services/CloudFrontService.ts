@@ -1001,7 +1001,12 @@ export class CloudFrontService {
     endTime?: string,
     limit: number = 1000,
     minCount: number = 1,
-    excludeStaticFiles: boolean = false
+    excludeStaticFiles: boolean = false,
+    clientIp?: string,
+    uriPath?: string,
+    userAgent?: string,
+    referrer?: string,
+    queryString?: string
   ): Promise<LogAggregationResponse> {
     try {
       const params = new URLSearchParams({
@@ -1020,6 +1025,21 @@ export class CloudFrontService {
       }
       if (endTime) {
         params.append('endTime', endTime);
+      }
+      if (clientIp) {
+        params.append('clientIp', clientIp);
+      }
+      if (uriPath) {
+        params.append('uriPath', uriPath);
+      }
+      if (userAgent) {
+        params.append('userAgent', userAgent);
+      }
+      if (referrer) {
+        params.append('referrer', referrer);
+      }
+      if (queryString) {
+        params.append('queryString', queryString);
       }
 
       const response = await fetch(

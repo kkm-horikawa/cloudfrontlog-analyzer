@@ -45,6 +45,12 @@ export default function LogAggregation() {
   const [minCount, setMinCount] = useState(1);
   const [excludeStaticFiles, setExcludeStaticFiles] = useState(false);
   const [filterJapanOnly, setFilterJapanOnly] = useState(false);
+  // フィルタ用のstate
+  const [clientIp, setClientIp] = useState('');
+  const [uriPath, setUriPath] = useState('');
+  const [userAgent, setUserAgent] = useState('');
+  const [referrer, setReferrer] = useState('');
+  const [queryString, setQueryString] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aggregationResponse, setAggregationResponse] = useState<LogAggregationResponse | null>(
@@ -109,7 +115,12 @@ export default function LogAggregation() {
         endTime || undefined,
         limit,
         minCount,
-        excludeStaticFiles
+        excludeStaticFiles,
+        clientIp || undefined,
+        uriPath || undefined,
+        userAgent || undefined,
+        referrer || undefined,
+        queryString || undefined
       );
       setAggregationResponse(response);
 
@@ -410,6 +421,87 @@ export default function LogAggregation() {
                   onChange={(e) => setEndTime(e.target.value)}
                   className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
+              </div>
+            </div>
+
+            {/* 詳細フィルタ（任意） */}
+            <div className="border-t pt-4">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">詳細フィルタ (任意)</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label htmlFor="clientIp" className="block text-sm font-medium text-gray-700 mb-1">
+                    Client IP:
+                  </label>
+                  <input
+                    id="clientIp"
+                    type="text"
+                    value={clientIp}
+                    onChange={(e) => setClientIp(e.target.value)}
+                    placeholder="例: 192.168.1.1"
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">完全一致</p>
+                </div>
+
+                <div>
+                  <label htmlFor="uriPath" className="block text-sm font-medium text-gray-700 mb-1">
+                    URI Path:
+                  </label>
+                  <input
+                    id="uriPath"
+                    type="text"
+                    value={uriPath}
+                    onChange={(e) => setUriPath(e.target.value)}
+                    placeholder="例: /api/"
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">部分一致</p>
+                </div>
+
+                <div>
+                  <label htmlFor="userAgent" className="block text-sm font-medium text-gray-700 mb-1">
+                    User Agent:
+                  </label>
+                  <input
+                    id="userAgent"
+                    type="text"
+                    value={userAgent}
+                    onChange={(e) => setUserAgent(e.target.value)}
+                    placeholder="例: Mozilla/5.0..."
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">完全一致</p>
+                </div>
+
+                <div>
+                  <label htmlFor="referrer" className="block text-sm font-medium text-gray-700 mb-1">
+                    Referrer:
+                  </label>
+                  <input
+                    id="referrer"
+                    type="text"
+                    value={referrer}
+                    onChange={(e) => setReferrer(e.target.value)}
+                    placeholder="例: google.com"
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">部分一致</p>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label htmlFor="queryString" className="block text-sm font-medium text-gray-700 mb-1">
+                    Query String:
+                  </label>
+                  <input
+                    id="queryString"
+                    type="text"
+                    value={queryString}
+                    onChange={(e) => setQueryString(e.target.value)}
+                    placeholder="例: utm_source=google"
+                    className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  />
+                  <p className="mt-1 text-xs text-gray-500">部分一致</p>
+                </div>
               </div>
             </div>
 

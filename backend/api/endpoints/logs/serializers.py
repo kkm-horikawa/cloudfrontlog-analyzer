@@ -166,6 +166,15 @@ class LogAggregationRequestSerializer(serializers.Serializer):
     limit = serializers.IntegerField(default=1000, min_value=1, max_value=10000)
     minCount = serializers.IntegerField(default=1, min_value=1)
     excludeStaticFiles = serializers.BooleanField(default=False, required=False)
+    # フィルタフィールド
+    clientIp = serializers.CharField(required=False, allow_blank=True)
+    clientIps = serializers.ListField(
+        child=serializers.CharField(), required=False, allow_empty=True
+    )
+    uriPath = serializers.CharField(required=False, allow_blank=True)
+    userAgent = serializers.CharField(required=False, allow_blank=True)
+    referrer = serializers.CharField(required=False, allow_blank=True)
+    queryString = serializers.CharField(required=False, allow_blank=True)
 
     def validate(self, data):
         """日付範囲のバリデーション"""

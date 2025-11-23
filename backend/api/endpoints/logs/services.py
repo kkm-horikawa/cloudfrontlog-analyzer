@@ -1276,6 +1276,12 @@ class LogService(AWSServiceBase):
         limit: int = 1000,
         min_count: int = 1,
         exclude_static_files: bool = False,
+        client_ip: Optional[str] = None,
+        client_ips: Optional[List[str]] = None,
+        uri_path: Optional[str] = None,
+        user_agent: Optional[str] = None,
+        referrer: Optional[str] = None,
+        query_string: Optional[str] = None,
     ) -> Dict:
         """指定されたグループ化キーでCloudFrontログを集約します。
 
@@ -1296,6 +1302,12 @@ class LogService(AWSServiceBase):
             limit (int, optional): 結果の最大件数（上位N件）。デフォルトは1000。
             min_count (int, optional): 最小リクエスト数フィルタ。デフォルトは1。
             exclude_static_files (bool, optional): 静的ファイルを除外するか。デフォルトはFalse。
+            client_ip (Optional[str]): 単一のクライアントIPでフィルタ
+            client_ips (Optional[List[str]]): 複数のクライアントIPでフィルタ
+            uri_path (Optional[str]): URIパスでフィルタ（部分一致）
+            user_agent (Optional[str]): User Agentでフィルタ（完全一致）
+            referrer (Optional[str]): リファラーでフィルタ（部分一致）
+            query_string (Optional[str]): クエリ文字列でフィルタ（部分一致）
 
         Returns:
             Dict: 集約結果を含む辞書。以下のキーが含まれます:
@@ -1459,6 +1471,31 @@ class LogService(AWSServiceBase):
             from api.utils.cloudfront_constants import is_static_file
 
             combined_df = combined_df[~combined_df["cs-uri-stem"].apply(is_static_file)]
+
+        # 追加のフィルタを適用
+        if client_ip:
+            combined_df = combined_df[combined_df["c-ip"] == client_ip]
+        elif client_ips:
+            # 複数のIPでフィルタ
+            combined_df = combined_df[combined_df["c-ip"].isin(client_ips)]
+
+        if uri_path:
+            combined_df = combined_df[
+                combined_df["cs-uri-stem"].str.contains(uri_path, na=False)
+            ]
+
+        if user_agent:
+            combined_df = combined_df[combined_df["cs-user-agent"] == user_agent]
+
+        if referrer:
+            combined_df = combined_df[
+                combined_df["cs-referer"].str.contains(referrer, na=False)
+            ]
+
+        if query_string:
+            combined_df = combined_df[
+                combined_df["cs-uri-query"].str.contains(query_string, na=False)
+            ]
 
         if combined_df.empty:
             return {

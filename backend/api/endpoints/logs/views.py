@@ -518,6 +518,41 @@ class LogAggregationView(APIView):
                 default=False,
                 required=False,
             ),
+            OpenApiParameter(
+                name="clientIp",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by client IP address (optional)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="uriPath",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by URI path (optional, partial match)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="userAgent",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by User Agent (optional, exact match)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="referrer",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by referrer (optional, partial match)",
+                required=False,
+            ),
+            OpenApiParameter(
+                name="queryString",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                description="Filter by query string (optional, partial match)",
+                required=False,
+            ),
         ],
         responses={200: LogAggregationResponseSerializer},
     )
@@ -560,6 +595,14 @@ class LogAggregationView(APIView):
         """
         profile = request.query_params.get("profile", "default")
 
+        # clientIpsパラメータ（カンマ区切りリスト）を処理
+        client_ips_param = request.query_params.get("clientIps", "")
+        client_ips = (
+            [ip.strip() for ip in client_ips_param.split(",") if ip.strip()]
+            if client_ips_param
+            else []
+        )
+
         # クエリパラメータからリクエストデータを構築
         request_data = {
             "distributionId": request.query_params.get("distributionId"),
@@ -570,6 +613,12 @@ class LogAggregationView(APIView):
             "endTime": request.query_params.get("endTime"),
             "limit": request.query_params.get("limit", 1000),
             "minCount": request.query_params.get("minCount", 1),
+            "clientIp": request.query_params.get("clientIp", ""),
+            "clientIps": client_ips,
+            "uriPath": request.query_params.get("uriPath", ""),
+            "userAgent": request.query_params.get("userAgent", ""),
+            "referrer": request.query_params.get("referrer", ""),
+            "queryString": request.query_params.get("queryString", ""),
         }
 
         # excludeStaticFilesは別途処理（Serializerに含めない）
@@ -604,6 +653,12 @@ class LogAggregationView(APIView):
                 limit=validated_data["limit"],
                 min_count=validated_data["minCount"],
                 exclude_static_files=exclude_static_files,
+                client_ip=validated_data.get("clientIp") or None,
+                client_ips=validated_data.get("clientIps") or None,
+                uri_path=validated_data.get("uriPath") or None,
+                user_agent=validated_data.get("userAgent") or None,
+                referrer=validated_data.get("referrer") or None,
+                query_string=validated_data.get("queryString") or None,
             )
 
             return Response(result)

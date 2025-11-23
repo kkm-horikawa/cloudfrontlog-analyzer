@@ -19,6 +19,7 @@ Example:
 
 import ipaddress
 import socket
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import as_completed
@@ -31,6 +32,58 @@ import requests
 
 # IP情報のインメモリキャッシュ（同じリクエスト内での高速アクセス用）
 _ip_cache: Dict[str, Optional[Dict]] = {}
+
+# グローバルなレート制限トラッカー
+_rate_limit_lock = threading.Lock()
+_rate_limit_remaining = 15  # ip-api.comのバッチAPIは1分あたり15リクエスト
+_rate_limit_reset_time = time.time()
+
+
+def wait_for_rate_limit():
+    """
+    レート制限をチェックし、必要に応じて待機する。
+    リクエストを送信する前に呼び出す必要がある。
+    """
+    global _rate_limit_remaining, _rate_limit_reset_time
+
+    with _rate_limit_lock:
+        current_time = time.time()
+
+        # レート制限がリセットされたかチェック
+        if current_time >= _rate_limit_reset_time:
+            _rate_limit_remaining = 15
+            _rate_limit_reset_time = current_time + 60
+
+        # リクエストが残っていない場合のみ待機
+        if _rate_limit_remaining <= 0:
+            wait_time = _rate_limit_reset_time - current_time + 1
+            print(
+                f"[Rate Limiter] No requests remaining, waiting {wait_time:.0f}s until reset..."
+            )
+            time.sleep(wait_time)
+            # リセット後は15リクエストに戻す
+            _rate_limit_remaining = 15
+            _rate_limit_reset_time = time.time() + 60
+
+        # リクエストカウントをデクリメント
+        _rate_limit_remaining -= 1
+
+
+def update_rate_limit_from_response(x_rl: str, x_ttl: str):
+    """
+    レスポンスヘッダーからレート制限情報を更新する。
+
+    Args:
+        x_rl: X-Rlヘッダーの値（残りリクエスト数）
+        x_ttl: X-Ttlヘッダーの値（リセットまでの秒数）
+    """
+    global _rate_limit_remaining, _rate_limit_reset_time
+
+    with _rate_limit_lock:
+        if x_rl is not None:
+            _rate_limit_remaining = int(x_rl)
+        if x_ttl is not None:
+            _rate_limit_reset_time = time.time() + int(x_ttl)
 
 
 def get_ip_info_from_db(ip_address: str) -> Optional[Dict]:
@@ -495,6 +548,9 @@ def fetch_single_batch(batch: List[str], batch_idx: int) -> Dict[str, Optional[D
 
     for retry in range(max_retries):
         try:
+            # レート制限をチェックし、必要に応じて待機
+            wait_for_rate_limit()
+
             # POSTバッチエンドポイントを使用
             response = requests.post(
                 "http://ip-api.com/batch",
@@ -509,11 +565,12 @@ def fetch_single_batch(batch: List[str], batch_idx: int) -> Dict[str, Optional[D
                 timeout=60,
             )
 
-            # レート制限ヘッダーを確認
+            # レート制限ヘッダーを確認し、グローバル状態を更新
             x_rl = response.headers.get("X-Rl")
             x_ttl = response.headers.get("X-Ttl")
 
             if x_rl is not None:
+                update_rate_limit_from_response(x_rl, x_ttl)
                 print(
                     f"[Batch {batch_idx + 1}] Rate limit: {x_rl} requests remaining, resets in {x_ttl}s"
                 )
@@ -555,7 +612,10 @@ def fetch_single_batch(batch: List[str], batch_idx: int) -> Dict[str, Optional[D
                 return batch_result
 
             elif response.status_code == 429:
-                # レート制限エラー
+                # レート制限エラー - グローバル状態を更新
+                if x_rl is not None:
+                    update_rate_limit_from_response(x_rl, x_ttl)
+
                 if retry < max_retries - 1:
                     wait_time = int(x_ttl) + 1 if x_ttl else retry_delay * (retry + 1)
                     print(
