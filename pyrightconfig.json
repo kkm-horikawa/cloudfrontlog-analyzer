@@ -1,0 +1,37 @@
+{
+  "pythonVersion": "3.11",
+  "typeCheckingMode": "basic",
+  "include": [
+    "backend/api",
+    "backend/config"
+  ],
+  "exclude": [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/migrations",
+    "**/venv",
+    "**/.venv",
+    "**/.env",
+    "frontend"
+  ],
+  "venvPath": "backend",
+  "venv": ".venv",
+  "reportArgumentType": false,
+  "reportAssignmentType": false,
+  "reportOptionalCall": false,
+  "reportMissingImports": false,
+  "reportMissingModuleSource": false,
+  "reportOptionalIterable": false,
+  "reportOptionalMemberAccess": false,
+  "reportOptionalSubscript": false,
+  "reportAttributeAccessIssue": false,
+  "reportOptionalOperand": false,
+  "reportCallIssue": false,
+  "reportReturnType": false,
+  "reportUnhashable": false,
+  "reportTypedDictNotRequiredAccess": false,
+  "reportGeneralTypeIssues": false,
+  "reportUnsupportedDunderAll": false,
+  "reportIndexIssue": false
+}

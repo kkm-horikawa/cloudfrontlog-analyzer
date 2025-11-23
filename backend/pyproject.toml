@@ -1,0 +1,100 @@
+[project]
+name = "cloudfront-analyzer-backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "boto3>=1.40.71",
+    "django>=5.2.8",
+    "django-cors-headers>=4.9.0",
+    "djangorestframework>=3.16.1",
+    "drf-spectacular>=0.29.0",
+    "openpyxl>=3.1.5",
+    "pandas>=2.2.3",
+    "pyarrow>=19.0.0",
+    "python-dateutil>=2.9.0.post0",
+    "requests>=2.32.5",
+]
+
+[dependency-groups]
+dev = [
+    "boto3-stubs>=1.40.71",
+    "django-stubs>=5.2.7",
+    "pre-commit>=4.4.0",
+    "pyright>=1.1.407",
+    "pytest>=8.0.0",
+    "pytest-django>=4.9.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.14.4",
+    "types-requests>=2.32.4.20250913",
+]
+
+[tool.django-stubs]
+django_settings_module = "config.settings"
+
+[tool.ruff]
+extend-exclude = ["migrations", "test_search.py"]
+line-length = 88
+
+[tool.ruff.lint]
+extend-select = ["I"]
+ignore = ["F405"]
+
+[tool.ruff.lint.isort]
+case-sensitive = false
+force-single-line = true
+lines-after-imports = 2
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+testpaths = ["api/tests"]
+addopts = [
+    "--verbose",
+    "--strict-markers",
+    "--tb=short",
+    "--maxfail=5",
+    "-p", "no:warnings",
+]
+markers = [
+    "django_db: mark test to use django database",
+    "slow: mark test as slow running",
+    "snapshot: mark test as snapshot/golden data test",
+]
+
+[tool.pyright]
+pythonVersion = "3.11"
+typeCheckingMode = "basic"
+venvPath = "."
+venv = ".venv"
+include = ["api", "config"]
+exclude = [
+    "**/node_modules",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/migrations",
+    "**/venv",
+    "**/.venv",
+    "**/.env",
+]
+
+reportArgumentType = false
+reportAssignmentType = false
+reportOptionalCall = false
+reportMissingImports = false
+reportMissingModuleSource = false
+reportOptionalIterable = false
+reportOptionalMemberAccess = false
+reportOptionalSubscript = false
+reportAttributeAccessIssue = false
+reportOptionalOperand = false
+reportCallIssue = false
+reportReturnType = false
+reportUnhashable = false
+reportTypedDictNotRequiredAccess = false
+reportGeneralTypeIssues = false
+reportUnsupportedDunderAll = false
+reportIndexIssue = false
