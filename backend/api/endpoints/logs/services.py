@@ -368,11 +368,47 @@ class LogService(AWSServiceBase):
         start_time: datetime,
         end_time: datetime,
     ) -> List[str]:
-        """時間範囲内のCloudFrontログファイルをリスト化"""
-        log_files = []
+        """時間範囲内のCloudFrontログファイルをリスト化（v1/v2両対応）。
 
-        # CloudFrontログファイルの命名規則: <prefix><distribution-id>.YYYY-MM-DD-HH.xxx.gz
-        # 日付範囲のファイルをチェックする必要があります
+        Args:
+            bucket (str): S3バケット名
+            prefix (str): S3プレフィックス
+            distribution_id (str): CloudFront Distribution ID
+            start_time (datetime): 開始時刻（UTC）
+            end_time (datetime): 終了時刻（UTC）
+
+        Returns:
+            List[str]: ログファイルのS3キーのリスト
+        """
+        from api.utils.s3_path_helper import detect_log_version_from_s3_structure
+
+        # S3構造からログバージョンを検出
+        log_version = detect_log_version_from_s3_structure(
+            self.s3_client, bucket, prefix, distribution_id
+        )
+
+        if log_version == "v2":
+            return self._list_log_files_v2(
+                bucket, prefix, distribution_id, start_time, end_time
+            )
+        else:
+            return self._list_log_files_v1(
+                bucket, prefix, distribution_id, start_time, end_time
+            )
+
+    def _list_log_files_v1(
+        self,
+        bucket: str,
+        prefix: str,
+        distribution_id: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[str]:
+        """v1形式のログファイルをリスト化（既存ロジック）。
+
+        CloudFrontログファイルの命名規則: <prefix><distribution-id>.YYYY-MM-DD-HH.xxx.gz
+        """
+        log_files = []
         current_date = start_time.date()
         end_date = end_time.date()
 
@@ -393,6 +429,64 @@ class LogService(AWSServiceBase):
                 pass  # 特定の日付にログがない場合でも続行
 
             current_date += timedelta(days=1)
+
+        return log_files
+
+    def _list_log_files_v2(
+        self,
+        bucket: str,
+        prefix: str,
+        distribution_id: str,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> List[str]:
+        """v2形式のログファイルをリスト化（パーティション構造対応）。
+
+        v2パーティション構造:
+            - year=2025/month=11/day=23/hour=12/ (Hive形式)
+            - 2025/11/23/12/ (シンプル形式)
+        """
+        from api.utils.s3_path_helper import generate_v2_partition_paths
+
+        log_files = []
+
+        # パーティション形式を推定（Hive形式とシンプル形式の両方を試行）
+        partition_formats = [
+            "year={yyyy}/month={MM}/day={dd}/hour={HH}",
+            "{yyyy}/{MM}/{dd}/{HH}",
+        ]
+
+        for partition_format in partition_formats:
+            # パーティションパスを生成
+            partition_paths = generate_v2_partition_paths(
+                prefix=prefix,
+                start_date=start_time.date(),
+                end_date=end_time.date(),
+                start_hour=start_time.hour,
+                end_hour=end_time.hour,
+                partition_format=partition_format,
+                distribution_id=distribution_id,
+            )
+
+            # 各パーティションパス配下のファイルをリスト
+            for partition_path in partition_paths:
+                try:
+                    response = self.s3_client.list_objects_v2(
+                        Bucket=bucket, Prefix=partition_path
+                    )
+
+                    if "Contents" in response:
+                        for obj in response["Contents"]:
+                            # ディレクトリでないものだけ追加
+                            if not obj["Key"].endswith("/"):
+                                log_files.append(obj["Key"])
+                except ClientError:
+                    # このパーティションにファイルがない場合はスキップ
+                    continue
+
+            # ファイルが見つかった場合は、このフォーマットを採用
+            if log_files:
+                break
 
         return log_files
 
@@ -590,7 +684,7 @@ class LogService(AWSServiceBase):
 
     def _load_log_as_dataframe(self, bucket: str, log_file_key: str) -> pd.DataFrame:
         """
-        CloudFrontログファイルをpandas DataFrameとして読み込み（Parquetキャッシュ付き）
+        CloudFrontログファイルをpandas DataFrameとして読み込み（v1/v2対応、Parquetキャッシュ付き）
 
         Args:
             bucket: S3バケット名
@@ -599,8 +693,24 @@ class LogService(AWSServiceBase):
         Returns:
             CloudFrontログデータを含むDataFrame
         """
+        from api.utils.log_format_detector import LogFormatDetector
+        from api.utils.log_parsers import create_parser
+
+        # フォーマットを検出
+        detector = LogFormatDetector()
+        log_format, log_version = detector.detect_from_path(log_file_key)
+
+        # v2のParquetファイルの場合、Parquet→Parquet変換は不要
+        # 直接読み込んでキャッシュとして保存
+        if log_format.value == "parquet":
+            return self._load_parquet_log(bucket, log_file_key)
+
         # Parquetキャッシュ用の安全なファイル名を作成
-        safe_filename = log_file_key.replace("/", "_").replace(".gz", ".parquet")
+        safe_filename = log_file_key.replace("/", "_")
+        # 拡張子を.parquetに統一
+        for ext in [".gz", ".json.gz", ".csv.gz", ".json", ".csv"]:
+            safe_filename = safe_filename.replace(ext, "")
+        safe_filename += ".parquet"
         cache_path = os.path.join(self.CACHE_DIR, f"{bucket}_{safe_filename}")
 
         # Parquetキャッシュが存在するかチェック
@@ -613,62 +723,25 @@ class LogService(AWSServiceBase):
                 os.remove(cache_path)
 
         # S3からダウンロードし、解析し、Parquetとしてキャッシュ
-        print(f"⬇ Downloading from S3: {log_file_key}")
+        print(f"⬇ Downloading from S3: {log_file_key} (format: {log_format.value})")
         try:
             response = self.s3_client.get_object(Bucket=bucket, Key=log_file_key)
+            content = response["Body"].read()
 
-            # gzipコンテンツを解凍
-            with gzip.GzipFile(fileobj=io.BytesIO(response["Body"].read())) as gz_file:
-                content = gz_file.read().decode("utf-8")
+            # 適切なパーサーを使用して解析
+            parser = create_parser(log_format.value)
+            df = parser.parse(content)
 
-            # DataFrameとして読み込み
-            df = pd.read_csv(
-                io.StringIO(content),
-                sep="\t",
-                comment="#",
-                names=CLOUDFRONT_LOG_COLUMNS,
-                na_values="-",
-                dtype={
-                    "date": str,
-                    "time": str,
-                    "x-edge-location": str,
-                    "c-ip": str,
-                    "cs-method": str,
-                    "cs-host": str,
-                    "cs-uri-stem": str,
-                    "cs-referer": str,
-                    "cs-user-agent": str,
-                    "cs-uri-query": str,
-                },
-                on_bad_lines="skip",
-                engine="python",
-            )
-
-            # 有効な日付/時刻を持つ行をフィルタ
-            df = df[df["date"].notna() & df["time"].notna()]
-
-            # datetime列を作成
-            df["datetime"] = pd.to_datetime(
-                df["date"] + " " + df["time"],
-                format="%Y-%m-%d %H:%M:%S",
-                utc=True,
-                errors="coerce",
-            )
-
-            # datetime解析が失敗した行を削除
-            df = df[df["datetime"].notna()]
-
-            # URLエンコードされたユーザーエージェントをデコード
-            df["cs-user-agent"] = df["cs-user-agent"].str.replace(
-                "%20", " ", regex=False
-            )
+            if df.empty:
+                print(f"⚠ Warning: Empty DataFrame from {log_file_key}")
+                return df
 
             # 高圧縮でParquetとして保存
             df.to_parquet(
                 cache_path,
                 engine="pyarrow",
                 compression="zstd",
-                compression_level=22,  # 最大圧縮（ゴールデンデータと同じ）
+                compression_level=22,  # 最大圧縮
                 index=False,
             )
 
@@ -681,9 +754,58 @@ class LogService(AWSServiceBase):
             print(f"❌ Error loading log file {log_file_key}: {str(e)}")
             return pd.DataFrame(columns=CLOUDFRONT_LOG_COLUMNS + ["datetime"])
 
+    def _load_parquet_log(self, bucket: str, log_file_key: str) -> pd.DataFrame:
+        """
+        Parquet形式のログファイルを直接読み込み（v2専用）
+
+        Args:
+            bucket: S3バケット名
+            log_file_key: S3オブジェクトキー
+
+        Returns:
+            CloudFrontログデータを含むDataFrame
+        """
+        from api.utils.log_parsers import ParquetParser
+
+        # Parquetはそのままキャッシュとして使用可能
+        safe_filename = log_file_key.replace("/", "_")
+        cache_path = os.path.join(self.CACHE_DIR, f"{bucket}_{safe_filename}")
+
+        # キャッシュが存在するかチェック
+        if os.path.exists(cache_path):
+            print(f"✓ Using cached Parquet: {cache_path}")
+            try:
+                return pd.read_parquet(cache_path)
+            except Exception as e:
+                print(f"⚠ Error reading cached Parquet, re-downloading: {str(e)}")
+                os.remove(cache_path)
+
+        # S3からダウンロード
+        print(f"⬇ Downloading Parquet from S3: {log_file_key}")
+        try:
+            response = self.s3_client.get_object(Bucket=bucket, Key=log_file_key)
+            content = response["Body"].read()
+
+            # Parquetパーサーで解析
+            parser = ParquetParser()
+            df = parser.parse(content)
+
+            # キャッシュとして保存
+            with open(cache_path, "wb") as f:
+                f.write(content)
+
+            file_size_mb = os.path.getsize(cache_path) / (1024 * 1024)
+            print(f"💾 Cached Parquet: {cache_path} ({file_size_mb:.2f} MB)")
+
+            return df
+
+        except Exception as e:
+            print(f"❌ Error loading Parquet log file {log_file_key}: {str(e)}")
+            return pd.DataFrame()
+
     def _dataframe_to_dict_list(self, df: pd.DataFrame) -> List[Dict]:
         """
-        DataFrameをAPIレスポンス形式に一致する辞書のリストに変換
+        DataFrameをAPIレスポンス形式に一致する辞書のリストに変換（v1/v2対応）
 
         Args:
             df: CloudFrontログデータを含むDataFrame
@@ -691,11 +813,17 @@ class LogService(AWSServiceBase):
         Returns:
             フィールド名が変更された辞書のリスト
         """
+        from api.utils.cloudfront_constants import V2_ADDITIONAL_FIELDS
+        from api.utils.cloudfront_constants import V2_FIELD_NAME_MAPPING
+
         if df.empty:
             return []
 
         # SettingWithCopyWarningを回避するためにコピーを作成
         df = df.copy()
+
+        # v2フィールドが含まれているかチェック
+        has_v2_fields = any(field in df.columns for field in V2_ADDITIONAL_FIELDS)
 
         # datetimeをUTCからJST（UTC+9）に変換
         if "datetime" in df.columns:
@@ -707,6 +835,11 @@ class LogService(AWSServiceBase):
 
         # 列をAPI形式にリネーム
         rename_dict = FIELD_NAME_MAPPING.copy()
+
+        # v2フィールドが含まれている場合、v2マッピングも追加
+        if has_v2_fields:
+            rename_dict.update(V2_FIELD_NAME_MAPPING)
+
         df_renamed = df.rename(columns=rename_dict)
 
         # NaN値を埋める
@@ -714,16 +847,23 @@ class LogService(AWSServiceBase):
 
         # 数値列を変換
         numeric_cols = ["bytes", "statusCode", "bytes_sent", "timeTaken"]
+        # v2の数値列も追加
+        if has_v2_fields:
+            numeric_cols.extend(["timestampMs", "originFirstByteLatency", "originLastByteLatency", "asn"])
+
         for col in numeric_cols:
             if col in df_renamed.columns:
                 df_renamed[col] = df_renamed[col].fillna(0)
-                if col == "timeTaken":
+                if col in ["timeTaken", "originFirstByteLatency", "originLastByteLatency"]:
                     df_renamed[col] = df_renamed[col].astype(float)
                 else:
                     df_renamed[col] = df_renamed[col].astype(int)
 
         # 必要な列のみを保持（APIレスポンス用にdatetimeとdatetime_jstを削除）
         result_columns = list(FIELD_NAME_MAPPING.values())
+        if has_v2_fields:
+            result_columns.extend(list(V2_FIELD_NAME_MAPPING.values()))
+
         df_result = df_renamed[
             [col for col in result_columns if col in df_renamed.columns]
         ]

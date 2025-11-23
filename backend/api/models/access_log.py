@@ -69,6 +69,41 @@ class AccessLog(models.Model):
     cs_referer = models.TextField(null=True, blank=True)
     x_edge_result_type = models.CharField(max_length=50, null=True, blank=True)
 
+    # CloudFront Standard Logs v2追加フィールド
+    # リアルタイムログフィールドのサブセット
+    timestamp_ms = models.BigIntegerField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="ミリ秒精度のUnixタイムスタンプ（v2のみ）",
+    )
+    origin_fbl = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Origin first-byte latency in seconds（v2のみ）",
+    )
+    origin_lbl = models.FloatField(
+        null=True,
+        blank=True,
+        help_text="Origin last-byte latency in seconds（v2のみ）",
+    )
+    asn = models.IntegerField(
+        null=True, blank=True, db_index=True, help_text="自律システム番号（v2のみ）"
+    )
+    c_country = models.CharField(
+        max_length=2,
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text="国コード ISO 3166-1 alpha-2（v2のみ）",
+    )
+    cache_behavior_path_pattern = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        help_text="マッチしたキャッシュ動作パターン（v2のみ）",
+    )
+
     class Meta:
         db_table = "access_logs"
         ordering = ["-log_datetime"]
@@ -79,6 +114,11 @@ class AccessLog(models.Model):
             # フィルタ用の複合インデックス
             models.Index(fields=["distribution_id", "cs_method", "sc_status"]),
             models.Index(fields=["distribution_id", "log_datetime", "sc_status"]),
+            # v2フィールド用インデックス
+            models.Index(fields=["timestamp_ms"]),
+            models.Index(fields=["asn"]),
+            models.Index(fields=["c_country"]),
+            models.Index(fields=["distribution_id", "c_country"]),
         ]
 
     def __str__(self):
