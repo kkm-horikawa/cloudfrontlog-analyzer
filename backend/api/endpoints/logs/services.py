@@ -1666,7 +1666,9 @@ class LogService(AWSServiceBase):
                 # IPアドレスの場合、まず組織情報からボット判定
                 from api.endpoints.log_marks.services import check_ip_is_bot
 
-                ip_bot_mark = check_ip_is_bot(value)
+                # valueが数値型の場合もあるので文字列に変換
+                ip_str = str(value) if value is not None else None
+                ip_bot_mark = check_ip_is_bot(ip_str) if ip_str else None
                 if ip_bot_mark:
                     mark_type = ip_bot_mark["mark_type"]
                 else:
