@@ -1637,9 +1637,12 @@ class LogService(AWSServiceBase):
 
             # この集計アイテムに関連するログのマーク統計を計算
             item_df = combined_df[combined_df[group_column] == value]
-            item_logs_for_marks = item_df[["cs-user-agent"]].rename(
-                columns={"cs-user-agent": "userAgent"}
-            ).to_dict("records")
+            # User-Agentを文字列化してからマーク取得
+            item_logs_for_marks = []
+            for ua in item_df["cs-user-agent"]:
+                # User-Agentを文字列に変換（NaNやNoneは空文字列に）
+                ua_str = str(ua) if ua is not None and str(ua) != "nan" else ""
+                item_logs_for_marks.append({"userAgent": ua_str})
             item_marks = get_log_marks_for_logs(item_logs_for_marks, distribution_id)
 
             # マークタイプ別にカウント
@@ -1657,11 +1660,12 @@ class LogService(AWSServiceBase):
             # この集計値自体のマークタイプを取得
             mark_type = None
             if group_by == "user_agent":
-                # このUser-Agentのマークを取得
-                test_log = [{"userAgent": value}]
+                # このUser-Agentのマークを取得（文字列化）
+                value_str = str(value) if value is not None and str(value) != "nan" else ""
+                test_log = [{"userAgent": value_str}]
                 value_marks = get_log_marks_for_logs(test_log, distribution_id)
-                if value and value in value_marks:
-                    mark_type = value_marks[value]["mark_type"]
+                if value_str and value_str in value_marks:
+                    mark_type = value_marks[value_str]["mark_type"]
             elif group_by == "ip":
                 # IPアドレスの場合、まず組織情報からボット判定
                 from api.endpoints.log_marks.services import check_ip_is_bot
