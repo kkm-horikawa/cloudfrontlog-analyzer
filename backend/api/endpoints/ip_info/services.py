@@ -180,6 +180,10 @@ def save_ip_info_to_db(ip_address: str, info: Dict) -> None:
     """
     from api.models import IPGeolocation
 
+    def to_str_or_none(value):
+        """値を文字列に変換、Noneの場合はNoneを返す"""
+        return str(value) if value is not None else None
+
     try:
         defaults = {
             "continent": info.get("continent"),
@@ -195,10 +199,10 @@ def save_ip_info_to_db(ip_address: str, info: Dict) -> None:
             "timezone": info.get("timezone"),
             "offset": info.get("offset"),
             "currency": info.get("currency"),
-            "isp": info.get("isp"),
-            "org": info.get("org"),
-            "asn": info.get("asn"),
-            "asname": info.get("asname"),
+            "isp": to_str_or_none(info.get("isp")),
+            "org": to_str_or_none(info.get("org")),
+            "asn": to_str_or_none(info.get("asn")),
+            "asname": to_str_or_none(info.get("asname")),
             "mobile": info.get("mobile"),
             "proxy": info.get("proxy"),
             "hosting": info.get("hosting"),
