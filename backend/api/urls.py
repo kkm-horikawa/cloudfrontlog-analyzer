@@ -18,6 +18,11 @@ from .endpoints.logs.views import LogAggregationView
 from .endpoints.logs.views import LogSearchView
 from .endpoints.logs.views import RawLogsListView
 
+# Log Marks
+from .endpoints.log_marks.views import check_log_marks
+from .endpoints.log_marks.views import log_mark_pattern_detail
+from .endpoints.log_marks.views import log_mark_patterns_list
+
 # Security Checks
 from .endpoints.security.views import CompanyInfoAccessCheckView
 from .endpoints.security.views import FrequentIPAccessCheckView
@@ -55,6 +60,10 @@ urlpatterns = [
         name="log-aggregation",
     ),
     path("cloudfront/logs/geo/", GeoLogsView.as_view(), name="geo-logs"),
+    # Log Marking
+    path("log-marks/", log_mark_patterns_list, name="log-mark-patterns-list"),
+    path("log-marks/<int:pk>/", log_mark_pattern_detail, name="log-mark-pattern-detail"),
+    path("log-marks/check/", check_log_marks, name="check-log-marks"),
     # IP Information
     path("ip-info/<str:ip_address>/", IPInfoView.as_view(), name="ip-info"),
     # WAF Operations

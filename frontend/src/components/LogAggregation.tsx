@@ -45,6 +45,8 @@ export default function LogAggregation() {
   const [minCount, setMinCount] = useState(1);
   const [excludeStaticFiles, setExcludeStaticFiles] = useState(false);
   const [filterJapanOnly, setFilterJapanOnly] = useState(false);
+  const [excludeBots, setExcludeBots] = useState(false);
+  const [excludeSuspicious, setExcludeSuspicious] = useState(false);
   // フィルタ用のstate
   const [clientIp, setClientIp] = useState('');
   const [uriPath, setUriPath] = useState('');
@@ -568,6 +570,32 @@ export default function LogAggregation() {
                 </div>
               )}
 
+              <div className="flex items-center">
+                <input
+                  id="excludeBots"
+                  type="checkbox"
+                  checked={excludeBots}
+                  onChange={(e) => setExcludeBots(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="excludeBots" className="ml-2 block text-sm text-gray-700">
+                  ボットを除外
+                </label>
+              </div>
+
+              <div className="flex items-center">
+                <input
+                  id="excludeSuspicious"
+                  type="checkbox"
+                  checked={excludeSuspicious}
+                  onChange={(e) => setExcludeSuspicious(e.target.checked)}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="excludeSuspicious" className="ml-2 block text-sm text-gray-700">
+                  疑わしいアクセスを除外
+                </label>
+              </div>
+
               <button
                 type="button"
                 onClick={handleAggregation}
@@ -614,13 +642,29 @@ export default function LogAggregation() {
         aggregationResponse &&
         aggregationResponse.aggregations.length > 0 &&
         (() => {
-          // 日本のみフィルタが有効な場合は集計をフィルタリング
-          const filteredAggregations =
-            filterJapanOnly && groupBy === 'ip'
-              ? aggregationResponse.aggregations.filter(
-                  (item) => item.geo_info?.country_code === 'JP'
-                )
-              : aggregationResponse.aggregations;
+          // フィルタを適用
+          let filteredAggregations = aggregationResponse.aggregations;
+
+          // 日本のみフィルタ
+          if (filterJapanOnly && groupBy === 'ip') {
+            filteredAggregations = filteredAggregations.filter(
+              (item) => item.geo_info?.country_code === 'JP'
+            );
+          }
+
+          // ボット除外フィルタ
+          if (excludeBots) {
+            filteredAggregations = filteredAggregations.filter(
+              (item) => item.mark_type !== 'bot'
+            );
+          }
+
+          // 疑わしいアクセス除外フィルタ
+          if (excludeSuspicious) {
+            filteredAggregations = filteredAggregations.filter(
+              (item) => item.mark_type !== 'suspicious'
+            );
+          }
 
           return (
             <div className="space-y-4">
@@ -648,14 +692,50 @@ export default function LogAggregation() {
                     <span className="text-blue-600 font-medium">表示件数:</span>
                     <p className="text-blue-900 font-semibold">
                       {filteredAggregations.length.toLocaleString()}
-                      {filterJapanOnly &&
-                        groupBy === 'ip' &&
-                        filteredAggregations.length !== aggregationResponse.aggregations.length && (
-                          <span className="text-blue-600 font-normal ml-1">(日本のみ)</span>
-                        )}
+                      {filteredAggregations.length !== aggregationResponse.aggregations.length && (
+                        <span className="text-blue-600 font-normal ml-1">
+                          (
+                          {filterJapanOnly && groupBy === 'ip' && '日本のみ'}
+                          {filterJapanOnly && groupBy === 'ip' && (excludeBots || excludeSuspicious) && ', '}
+                          {excludeBots && 'ボット除外'}
+                          {excludeBots && excludeSuspicious && ', '}
+                          {excludeSuspicious && '疑わしいアクセス除外'}
+                          )
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
+
+                {/* マーク統計情報 */}
+                {aggregationResponse.mark_stats && (
+                  <div className="flex flex-wrap gap-2 pt-2 border-t border-blue-200 mt-2">
+                    {aggregationResponse.mark_stats.bot > 0 && (
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                        🤖 ボット: {aggregationResponse.mark_stats.bot.toLocaleString()} (
+                        {((aggregationResponse.mark_stats.bot / aggregationResponse.total_requests) * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                    {aggregationResponse.mark_stats.suspicious > 0 && (
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800">
+                        ⚠️ 警戒: {aggregationResponse.mark_stats.suspicious.toLocaleString()} (
+                        {((aggregationResponse.mark_stats.suspicious / aggregationResponse.total_requests) * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                    {aggregationResponse.mark_stats.legitimate > 0 && (
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                        ✓ 正常: {aggregationResponse.mark_stats.legitimate.toLocaleString()} (
+                        {((aggregationResponse.mark_stats.legitimate / aggregationResponse.total_requests) * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                    {aggregationResponse.mark_stats.unmarked > 0 && (
+                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                        未マーク: {aggregationResponse.mark_stats.unmarked.toLocaleString()} (
+                        {((aggregationResponse.mark_stats.unmarked / aggregationResponse.total_requests) * 100).toFixed(1)}%)
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* 集計テーブル */}
@@ -681,6 +761,9 @@ export default function LogAggregation() {
                             国/都市
                           </th>
                         )}
+                        <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                          マーク統計
+                        </th>
                         <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                           ステータス分布
                         </th>
@@ -734,6 +817,32 @@ export default function LogAggregation() {
                                 : '-'}
                             </td>
                           )}
+                          <td className="px-4 py-2 text-sm whitespace-nowrap">
+                            {item.mark_stats && (
+                              <div className="flex flex-wrap gap-1">
+                                {item.mark_stats.bot > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                                    🤖 {item.mark_stats.bot} ({((item.mark_stats.bot / item.request_count) * 100).toFixed(0)}%)
+                                  </span>
+                                )}
+                                {item.mark_stats.suspicious > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                    ⚠️ {item.mark_stats.suspicious} ({((item.mark_stats.suspicious / item.request_count) * 100).toFixed(0)}%)
+                                  </span>
+                                )}
+                                {item.mark_stats.legitimate > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                    ✓ {item.mark_stats.legitimate} ({((item.mark_stats.legitimate / item.request_count) * 100).toFixed(0)}%)
+                                  </span>
+                                )}
+                                {item.mark_stats.unmarked > 0 && (
+                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
+                                    - {item.mark_stats.unmarked} ({((item.mark_stats.unmarked / item.request_count) * 100).toFixed(0)}%)
+                                  </span>
+                                )}
+                              </div>
+                            )}
+                          </td>
                           <td className="px-4 py-2 text-sm whitespace-nowrap">
                             {renderStatusDistribution(item.status_distribution)}
                           </td>

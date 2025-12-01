@@ -11,14 +11,15 @@ import BlockedIPs from './components/BlockedIPs';
 import CloudFrontAnalyzer from './components/CloudFrontAnalyzer';
 import GeoLogMap from './components/GeoLogMap';
 import LogAggregation from './components/LogAggregation';
+import { LogMarkManagement } from './components/LogMarkManagement';
 import RawLogs from './components/RawLogs';
 
 /**
  * アプリケーションのビューモード
  *
- * @typedef {'search' | 'rawLogs' | 'aggregation' | 'geoMap' | 'blockedIPs'} ViewMode
+ * @typedef {'search' | 'rawLogs' | 'aggregation' | 'geoMap' | 'blockedIPs' | 'logMarks'} ViewMode
  */
-type ViewMode = 'search' | 'rawLogs' | 'aggregation' | 'geoMap' | 'blockedIPs';
+type ViewMode = 'search' | 'rawLogs' | 'aggregation' | 'geoMap' | 'blockedIPs' | 'logMarks';
 
 /**
  * CloudFront Log Analyzerのメインアプリケーションコンポーネント
@@ -100,6 +101,17 @@ function App() {
               >
                 WAF Blocklist
               </button>
+              <button
+                type="button"
+                onClick={() => setViewMode('logMarks')}
+                className={`${
+                  viewMode === 'logMarks'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                } whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm`}
+              >
+                Log Marks
+              </button>
             </nav>
           </div>
         </div>
@@ -110,6 +122,7 @@ function App() {
         {viewMode === 'aggregation' && <LogAggregation />}
         {viewMode === 'geoMap' && <GeoLogMap />}
         {viewMode === 'blockedIPs' && <BlockedIPs />}
+        {viewMode === 'logMarks' && <LogMarkManagement profile="leading" />}
       </main>
     </div>
   );

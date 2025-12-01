@@ -350,6 +350,11 @@ class LogService(AWSServiceBase):
         # Convert to list of dictionaries
         logs = self._dataframe_to_dict_list(page_df)
 
+        # Add mark information to logs
+        from api.endpoints.log_marks.services import add_marks_to_logs
+
+        logs = add_marks_to_logs(logs, distribution_id)
+
         return {
             "logs": logs,
             "pagination": {
@@ -1605,9 +1610,15 @@ class LogService(AWSServiceBase):
                 lambda ip: geo_info_map.get(ip)
             )
 
-        # 各集約にsample_logを追加
+        # 各集約にsample_log、mark_stats、mark_typeを追加
+        from api.endpoints.log_marks.services import get_log_marks_for_logs
+
         sample_logs = []
+        mark_stats_per_item = []
+        mark_types = []
+
         for value in agg_result["value"]:
+            # サンプルログを取得
             sample_df = combined_df[combined_df[group_column] == value].tail(1)
             if not sample_df.empty:
                 sample_row = sample_df.iloc[0]
@@ -1624,7 +1635,72 @@ class LogService(AWSServiceBase):
             else:
                 sample_logs.append(None)
 
+            # この集計アイテムに関連するログのマーク統計を計算
+            item_df = combined_df[combined_df[group_column] == value]
+            item_logs_for_marks = item_df[["cs-user-agent"]].rename(
+                columns={"cs-user-agent": "userAgent"}
+            ).to_dict("records")
+            item_marks = get_log_marks_for_logs(item_logs_for_marks, distribution_id)
+
+            # マークタイプ別にカウント
+            item_mark_stats = {"bot": 0, "suspicious": 0, "legitimate": 0, "unmarked": 0}
+            for log in item_logs_for_marks:
+                user_agent = log.get("userAgent", "")
+                if user_agent and user_agent in item_marks:
+                    mark_type = item_marks[user_agent]["mark_type"]
+                    item_mark_stats[mark_type] = item_mark_stats.get(mark_type, 0) + 1
+                else:
+                    item_mark_stats["unmarked"] += 1
+
+            mark_stats_per_item.append(item_mark_stats)
+
+            # この集計値自体のマークタイプを取得
+            mark_type = None
+            if group_by == "user_agent":
+                # このUser-Agentのマークを取得
+                test_log = [{"userAgent": value}]
+                value_marks = get_log_marks_for_logs(test_log, distribution_id)
+                if value and value in value_marks:
+                    mark_type = value_marks[value]["mark_type"]
+            elif group_by == "ip":
+                # IPアドレスの場合、まず組織情報からボット判定
+                from api.endpoints.log_marks.services import check_ip_is_bot
+
+                ip_bot_mark = check_ip_is_bot(value)
+                if ip_bot_mark:
+                    mark_type = ip_bot_mark["mark_type"]
+                else:
+                    # 組織ベースで判定できない場合、mark_statsから判定
+                    # ボットの割合が50%以上の場合は"bot"とマーク
+                    total_marked = sum(item_mark_stats.values())
+                    if total_marked > 0:
+                        bot_percentage = item_mark_stats["bot"] / total_marked
+                        suspicious_percentage = item_mark_stats["suspicious"] / total_marked
+
+                        if bot_percentage >= 0.5:
+                            mark_type = "bot"
+                        elif suspicious_percentage >= 0.5:
+                            mark_type = "suspicious"
+                        elif item_mark_stats["legitimate"] / total_marked >= 0.5:
+                            mark_type = "legitimate"
+            else:
+                # referrer、query_stringなどの場合、mark_statsから判定
+                total_marked = sum(item_mark_stats.values())
+                if total_marked > 0:
+                    bot_percentage = item_mark_stats["bot"] / total_marked
+                    suspicious_percentage = item_mark_stats["suspicious"] / total_marked
+
+                    if bot_percentage >= 0.5:
+                        mark_type = "bot"
+                    elif suspicious_percentage >= 0.5:
+                        mark_type = "suspicious"
+                    elif item_mark_stats["legitimate"] / total_marked >= 0.5:
+                        mark_type = "legitimate"
+            mark_types.append(mark_type)
+
         agg_result["sample_log"] = sample_logs
+        agg_result["mark_stats"] = mark_stats_per_item
+        agg_result["mark_type"] = mark_types
 
         # datetime列をJSTに変換
         agg_result["first_seen"] = pd.to_datetime(
@@ -1637,6 +1713,25 @@ class LogService(AWSServiceBase):
         # Convert to list of dictionaries
         aggregations = agg_result.to_dict("records")
 
+        # Calculate mark statistics
+        from api.endpoints.log_marks.services import get_log_marks_for_logs
+
+        # Convert DataFrame to list of dicts for mark checking
+        logs_for_marks = combined_df[["cs-user-agent"]].rename(
+            columns={"cs-user-agent": "userAgent"}
+        ).to_dict("records")
+        marks = get_log_marks_for_logs(logs_for_marks, distribution_id)
+
+        # Count marks by type
+        mark_stats = {"bot": 0, "suspicious": 0, "legitimate": 0, "unmarked": 0}
+        for log in logs_for_marks:
+            user_agent = log.get("userAgent", "")
+            if user_agent and user_agent in marks:
+                mark_type = marks[user_agent]["mark_type"]
+                mark_stats[mark_type] = mark_stats.get(mark_type, 0) + 1
+            else:
+                mark_stats["unmarked"] += 1
+
         # レスポンスを構築
         response = {
             "distribution_id": distribution_id,
@@ -1648,6 +1743,7 @@ class LogService(AWSServiceBase):
             "total_requests": total_requests,
             "unique_values": len(agg_result),
             "aggregations": aggregations,
+            "mark_stats": mark_stats,
         }
 
         return response

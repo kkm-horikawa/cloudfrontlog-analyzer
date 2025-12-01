@@ -17,6 +17,7 @@ import type {
   IPInfo,
   LogAggregationResponse,
   LogEntry,
+  LogMarkPattern,
   MultiDeviceCheckResult,
   RawLogsResponse,
   ResearchToolCheckResult,
@@ -1061,6 +1062,140 @@ export class CloudFrontService {
       return data;
     } catch (error) {
       console.error('Error getting log aggregation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークパターンを取得
+   *
+   * 登録されているログマークパターンの一覧を取得します。
+   * オプションでDistribution IDやマーク種別でフィルタリングできます。
+   *
+   * @param distributionId - Distribution IDでフィルタ（オプション）
+   * @param markType - マーク種別でフィルタ（オプション）
+   * @returns ログマークパターンの配列
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async getLogMarkPatterns(
+    distributionId?: string,
+    markType?: 'bot' | 'suspicious' | 'legitimate'
+  ): Promise<LogMarkPattern[]> {
+    try {
+      const params = new URLSearchParams();
+      if (distributionId) params.append('distribution_id', distributionId);
+      if (markType) params.append('mark_type', markType);
+
+      const response = await fetch(
+        `${API_BASE_URL}/api/log-marks/?${params.toString()}`,
+        {
+          headers: {
+            'X-Profile': this.profile,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching log mark patterns:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークパターンを作成
+   *
+   * 新しいログマークパターンを登録します。
+   * User-Agentパターンに基づいてログを自動的にマーク（bot、suspicious、legitimate）します。
+   *
+   * @param pattern - 作成するログマークパターン
+   * @returns 作成されたログマークパターン
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async createLogMarkPattern(pattern: Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at'>): Promise<LogMarkPattern> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-marks/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile': this.profile,
+        },
+        body: JSON.stringify(pattern),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error creating log mark pattern:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークパターンを更新
+   *
+   * 指定されたIDのログマークパターンを更新します。
+   *
+   * @param patternId - 更新するパターンのID
+   * @param pattern - 更新するパターン情報
+   * @returns 更新されたログマークパターン
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async updateLogMarkPattern(
+    patternId: number,
+    pattern: Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at'>
+  ): Promise<LogMarkPattern> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-marks/${patternId}/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile': this.profile,
+        },
+        body: JSON.stringify(pattern),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error updating log mark pattern:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークパターンを削除
+   *
+   * 指定されたIDのログマークパターンを削除します。
+   *
+   * @param patternId - 削除するパターンのID
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async deleteLogMarkPattern(patternId: number): Promise<void> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-marks/${patternId}/`, {
+        method: 'DELETE',
+        headers: {
+          'X-Profile': this.profile,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error deleting log mark pattern:', error);
       throw error;
     }
   }

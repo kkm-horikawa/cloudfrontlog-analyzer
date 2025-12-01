@@ -80,6 +80,74 @@ export interface IPInfo {
 }
 
 /**
+ * ログマーク情報
+ *
+ * User-Agentパターンに基づくログのマーキング情報を表します。
+ * ボット、疑わしいアクセス、正規アクセスなどを識別します。
+ */
+export interface LogMark {
+  /** マークの種類（bot: ボット、suspicious: 疑わしい、legitimate: 正規） */
+  mark_type: "bot" | "suspicious" | "legitimate";
+  /** マッチしたUser-Agentパターン */
+  pattern: string;
+  /** メモ・説明 */
+  note: string;
+}
+
+/**
+ * ログマークパターン設定
+ *
+ * 複数条件（User-Agent、IP、パス、クエリストリング、リファラ）の組み合わせで
+ * ログをマークするための設定情報を表します。
+ */
+export interface LogMarkPattern {
+  /** パターンID */
+  id?: number;
+  /** 対象のDistribution ID（省略時は全Distribution対象） */
+  distribution_id?: string | null;
+  /** マッチング対象のUser-Agentパターン（省略可） */
+  user_agent_pattern?: string | null;
+  /** マッチング対象のIPアドレスパターン（省略可） */
+  ip_pattern?: string | null;
+  /** マッチング対象のパスパターン（省略可） */
+  path_pattern?: string | null;
+  /** マッチング対象のクエリストリングパターン（省略可） */
+  query_string_pattern?: string | null;
+  /** マッチング対象のリファラパターン（省略可） */
+  referrer_pattern?: string | null;
+  /** マッチング対象の組織名パターン（省略可） */
+  org_pattern?: string | null;
+  /** マッチング方法（exact: 完全一致、partial: 部分一致） */
+  match_type: "exact" | "partial";
+  /** マークの種類 */
+  mark_type: "bot" | "suspicious" | "legitimate";
+  /** メモ・説明 */
+  note?: string;
+  /** アクティブフラグ */
+  is_active: boolean;
+  /** 作成日時（ISO 8601形式） */
+  created_at?: string;
+  /** 更新日時（ISO 8601形式） */
+  updated_at?: string;
+}
+
+/**
+ * マーク統計情報
+ *
+ * ログ集約時のマークタイプ別の件数統計を表します。
+ */
+export interface MarkStats {
+  /** ボットとマークされたログ数 */
+  bot: number;
+  /** 疑わしいとマークされたログ数 */
+  suspicious: number;
+  /** 正規とマークされたログ数 */
+  legitimate: number;
+  /** マークされていないログ数 */
+  unmarked: number;
+}
+
+/**
  * 疑わしいアクセスチェックの詳細結果
  *
  * User-Agent、Referrer、パス、IPアドレスなど、個別の項目ごとの
@@ -208,6 +276,8 @@ export interface LogEntry {
   ipInfo?: IPInfo;
   /** 疑わしいアクセスチェック結果（拡張情報） */
   suspiciousCheck?: SuspiciousCheck;
+  /** ログマーク情報（拡張情報） */
+  mark?: LogMark | null;
 }
 
 /**
@@ -710,6 +780,10 @@ export interface AggregationItem {
   method_distribution: Record<string, number>;
   /** 地理情報（IPでグループ化時のみ） */
   geo_info?: GeoInfo;
+  /** この集計アイテムのマーク統計 */
+  mark_stats?: MarkStats;
+  /** この集計値自体のマークタイプ（user_agentでグループ化時のみ） */
+  mark_type?: "bot" | "suspicious" | "legitimate" | null;
   /** サンプルログ */
   sample_log?: SampleLog;
 }
@@ -745,6 +819,8 @@ export interface LogAggregationResponse {
   unique_values: number;
   /** 集計結果のリスト */
   aggregations: AggregationItem[];
+  /** マーク統計情報 */
+  mark_stats?: MarkStats;
 }
 
 /**
