@@ -532,25 +532,12 @@ def get_ip_info_batch(ip_addresses: List[str]) -> Dict[str, Optional[Dict]]:
             batch, idx = future_to_batch[future]
             try:
                 batch_result = future.result()
-                # 結果をマージ
+                # 結果をマージ (fetch_single_batchで既に文字列化済み)
                 for ip, info in batch_result.items():
+                    result[ip] = info
+                    _ip_cache[ip] = info
                     if info is not None:
                         save_ip_info_to_db(ip, info)
-                        # org/isp/asname フィールドを文字列化
-                        normalized_info = info.copy()
-                        if normalized_info.get("org") is not None:
-                            normalized_info["org"] = str(normalized_info["org"])
-                        if normalized_info.get("isp") is not None:
-                            normalized_info["isp"] = str(normalized_info["isp"])
-                        if normalized_info.get("asn") is not None:
-                            normalized_info["asn"] = str(normalized_info["asn"])
-                        if normalized_info.get("asname") is not None:
-                            normalized_info["asname"] = str(normalized_info["asname"])
-                        result[ip] = normalized_info
-                        _ip_cache[ip] = normalized_info
-                    else:
-                        result[ip] = info
-                        _ip_cache[ip] = info
                 print(f"✓ Batch {idx + 1}/{len(batches)} completed")
             except Exception as e:
                 print(f"✗ Batch {idx + 1}/{len(batches)} failed: {e}")
@@ -611,6 +598,13 @@ def fetch_single_batch(batch: List[str], batch_idx: int) -> Dict[str, Optional[D
                 for data in batch_results:
                     if data.get("status") == "success":
                         ip = data.get("query")
+
+                        # org/isp/asname フィールドを文字列化
+                        isp_val = data.get("isp")
+                        org_val = data.get("org")
+                        asn_val = data.get("as")
+                        asname_val = data.get("asname")
+
                         info = {
                             "ip": ip,
                             "continent": data.get("continent"),
@@ -626,10 +620,10 @@ def fetch_single_batch(batch: List[str], batch_idx: int) -> Dict[str, Optional[D
                             "timezone": data.get("timezone"),
                             "offset": data.get("offset"),
                             "currency": data.get("currency"),
-                            "isp": data.get("isp"),
-                            "org": data.get("org"),
-                            "asn": data.get("as"),
-                            "asname": data.get("asname"),
+                            "isp": str(isp_val) if isp_val is not None else None,
+                            "org": str(org_val) if org_val is not None else None,
+                            "asn": str(asn_val) if asn_val is not None else None,
+                            "asname": str(asname_val) if asname_val is not None else None,
                             "mobile": data.get("mobile"),
                             "proxy": data.get("proxy"),
                             "hosting": data.get("hosting"),
