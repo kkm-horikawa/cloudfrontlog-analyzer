@@ -359,11 +359,24 @@ def get_ip_info(ip_address: str) -> Optional[Dict]:
                     result["whois"] = {}
                     print(f"✗ WHOIS info not available for {ip_address}")
 
-                _ip_cache[ip_address] = result
                 # データベースキャッシュに保存
                 save_ip_info_to_db(ip_address, result)
+
+                # org/isp/asname フィールドを文字列化してキャッシュ
+                # (save_ip_info_to_dbで変換されたものと同じ形式にする)
+                normalized_result = result.copy()
+                if normalized_result.get("org") is not None:
+                    normalized_result["org"] = str(normalized_result["org"])
+                if normalized_result.get("isp") is not None:
+                    normalized_result["isp"] = str(normalized_result["isp"])
+                if normalized_result.get("asn") is not None:
+                    normalized_result["asn"] = str(normalized_result["asn"])
+                if normalized_result.get("asname") is not None:
+                    normalized_result["asname"] = str(normalized_result["asname"])
+
+                _ip_cache[ip_address] = normalized_result
                 print(f"API fetch and DB save for {ip_address}")
-                return result
+                return normalized_result
             else:
                 print(f"IP lookup failed: {data.get('message', 'Unknown error')}")
                 _ip_cache[ip_address] = None
@@ -521,10 +534,23 @@ def get_ip_info_batch(ip_addresses: List[str]) -> Dict[str, Optional[Dict]]:
                 batch_result = future.result()
                 # 結果をマージ
                 for ip, info in batch_result.items():
-                    result[ip] = info
-                    _ip_cache[ip] = info
                     if info is not None:
                         save_ip_info_to_db(ip, info)
+                        # org/isp/asname フィールドを文字列化
+                        normalized_info = info.copy()
+                        if normalized_info.get("org") is not None:
+                            normalized_info["org"] = str(normalized_info["org"])
+                        if normalized_info.get("isp") is not None:
+                            normalized_info["isp"] = str(normalized_info["isp"])
+                        if normalized_info.get("asn") is not None:
+                            normalized_info["asn"] = str(normalized_info["asn"])
+                        if normalized_info.get("asname") is not None:
+                            normalized_info["asname"] = str(normalized_info["asname"])
+                        result[ip] = normalized_info
+                        _ip_cache[ip] = normalized_info
+                    else:
+                        result[ip] = info
+                        _ip_cache[ip] = info
                 print(f"✓ Batch {idx + 1}/{len(batches)} completed")
             except Exception as e:
                 print(f"✗ Batch {idx + 1}/{len(batches)} failed: {e}")
