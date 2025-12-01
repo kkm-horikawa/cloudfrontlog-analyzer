@@ -166,55 +166,65 @@ class LogMarkPattern(models.Model):
         if self.user_agent_pattern:
             if not user_agent:
                 return False
+            # 文字列に変換（数値型の可能性に対応）
+            user_agent_str = str(user_agent) if user_agent is not None else ""
             if self.match_type == "exact":
-                if user_agent != self.user_agent_pattern:
+                if user_agent_str != self.user_agent_pattern:
                     return False
             else:  # partial
-                if self.user_agent_pattern.lower() not in user_agent.lower():
+                if self.user_agent_pattern.lower() not in user_agent_str.lower():
                     return False
 
         # IPアドレスチェック
         if self.ip_pattern:
             if not ip_address:
                 return False
+            # 文字列に変換（数値型の可能性に対応）
+            ip_address_str = str(ip_address) if ip_address is not None else ""
             if self.match_type == "exact":
-                if ip_address != self.ip_pattern:
+                if ip_address_str != self.ip_pattern:
                     return False
             else:  # partial
-                if self.ip_pattern.lower() not in ip_address.lower():
+                if self.ip_pattern.lower() not in ip_address_str.lower():
                     return False
 
         # パスチェック
         if self.path_pattern:
             if not path:
                 return False
+            # 文字列に変換（数値型の可能性に対応）
+            path_str = str(path) if path is not None else ""
             if self.match_type == "exact":
-                if path != self.path_pattern:
+                if path_str != self.path_pattern:
                     return False
             else:  # partial
-                if self.path_pattern.lower() not in path.lower():
+                if self.path_pattern.lower() not in path_str.lower():
                     return False
 
         # クエリストリングチェック
         if self.query_string_pattern:
             if not query_string:
                 return False
+            # 文字列に変換（数値型の可能性に対応）
+            query_string_str = str(query_string) if query_string is not None else ""
             if self.match_type == "exact":
-                if query_string != self.query_string_pattern:
+                if query_string_str != self.query_string_pattern:
                     return False
             else:  # partial
-                if self.query_string_pattern.lower() not in query_string.lower():
+                if self.query_string_pattern.lower() not in query_string_str.lower():
                     return False
 
         # リファラチェック
         if self.referrer_pattern:
             if not referrer:
                 return False
+            # 文字列に変換（数値型の可能性に対応）
+            referrer_str = str(referrer) if referrer is not None else ""
             if self.match_type == "exact":
-                if referrer != self.referrer_pattern:
+                if referrer_str != self.referrer_pattern:
                     return False
             else:  # partial
-                if self.referrer_pattern.lower() not in referrer.lower():
+                if self.referrer_pattern.lower() not in referrer_str.lower():
                     return False
 
         # 組織名チェック
