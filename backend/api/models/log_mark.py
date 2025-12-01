@@ -234,12 +234,17 @@ class LogMarkPattern(models.Model):
                 if not field_value:
                     continue
 
+                # field_valueを文字列に変換（数値型の可能性に対応）
+                field_value_str = str(field_value) if field_value is not None else ""
+                if not field_value_str:
+                    continue
+
                 if self.match_type == "exact":
-                    if field_value == self.org_pattern:
+                    if field_value_str == self.org_pattern:
                         matched = True
                         break
                 else:  # partial
-                    if self.org_pattern.lower() in field_value.lower():
+                    if self.org_pattern.lower() in field_value_str.lower():
                         matched = True
                         break
 
