@@ -362,21 +362,25 @@ def get_ip_info(ip_address: str) -> Optional[Dict]:
                 # データベースキャッシュに保存
                 save_ip_info_to_db(ip_address, result)
 
-                # org/isp/asname フィールドを文字列化してキャッシュ
-                # (save_ip_info_to_dbで変換されたものと同じ形式にする)
-                normalized_result = result.copy()
-                if normalized_result.get("org") is not None:
-                    normalized_result["org"] = str(normalized_result["org"])
-                if normalized_result.get("isp") is not None:
-                    normalized_result["isp"] = str(normalized_result["isp"])
-                if normalized_result.get("asn") is not None:
-                    normalized_result["asn"] = str(normalized_result["asn"])
-                if normalized_result.get("asname") is not None:
-                    normalized_result["asname"] = str(normalized_result["asname"])
-
-                _ip_cache[ip_address] = normalized_result
-                print(f"API fetch and DB save for {ip_address}")
-                return normalized_result
+                # DBから再取得して一貫性を保つ（DBから取得したデータは文字列型になっている）
+                db_result = get_ip_info_from_db(ip_address)
+                if db_result:
+                    _ip_cache[ip_address] = db_result
+                    print(f"API fetch and DB save for {ip_address}")
+                    return db_result
+                else:
+                    # フォールバック: DBから取得できない場合は文字列化して返す
+                    normalized_result = result.copy()
+                    if normalized_result.get("org") is not None:
+                        normalized_result["org"] = str(normalized_result["org"])
+                    if normalized_result.get("isp") is not None:
+                        normalized_result["isp"] = str(normalized_result["isp"])
+                    if normalized_result.get("asn") is not None:
+                        normalized_result["asn"] = str(normalized_result["asn"])
+                    if normalized_result.get("asname") is not None:
+                        normalized_result["asname"] = str(normalized_result["asname"])
+                    _ip_cache[ip_address] = normalized_result
+                    return normalized_result
             else:
                 print(f"IP lookup failed: {data.get('message', 'Unknown error')}")
                 _ip_cache[ip_address] = None
@@ -532,12 +536,22 @@ def get_ip_info_batch(ip_addresses: List[str]) -> Dict[str, Optional[Dict]]:
             batch, idx = future_to_batch[future]
             try:
                 batch_result = future.result()
-                # 結果をマージ (fetch_single_batchで既に文字列化済み)
+                # 結果をマージ - DBに保存してから再取得して一貫性を保つ
                 for ip, info in batch_result.items():
-                    result[ip] = info
-                    _ip_cache[ip] = info
                     if info is not None:
                         save_ip_info_to_db(ip, info)
+                        # DBから再取得（文字列型に正規化されている）
+                        db_info = get_ip_info_from_db(ip)
+                        if db_info:
+                            result[ip] = db_info
+                            _ip_cache[ip] = db_info
+                        else:
+                            # フォールバック
+                            result[ip] = info
+                            _ip_cache[ip] = info
+                    else:
+                        result[ip] = info
+                        _ip_cache[ip] = info
                 print(f"✓ Batch {idx + 1}/{len(batches)} completed")
             except Exception as e:
                 print(f"✗ Batch {idx + 1}/{len(batches)} failed: {e}")
