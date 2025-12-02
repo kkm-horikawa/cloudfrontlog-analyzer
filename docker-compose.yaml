@@ -3,12 +3,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      network: host
     container_name: cloudfront-analyzer-backend
     ports:
       - "8000:8000"
     volumes:
       # Mount AWS credentials (read-only)
-      - ~/.aws:/root/.aws:ro
+      - ~/.aws:/home/appuser/.aws:ro
       # Mount CloudFront log cache directory
       - ./.cache/cloudfront_logs:/app/.cache/cloudfront_logs
       # Mount backend code for development (optional, comment out for production)
@@ -16,12 +17,14 @@ services:
     environment:
       - PYTHONUNBUFFERED=1
       - CLOUDFRONT_LOG_CACHE_DIR=/app/.cache/cloudfront_logs
+      - HOME=/home/appuser
     restart: unless-stopped
 
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      network: host
     container_name: cloudfront-analyzer-frontend
     ports:
       - "5173:5173"

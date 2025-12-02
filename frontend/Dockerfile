@@ -3,15 +3,17 @@ FROM node:22-slim
 
 # Set working directory
 WORKDIR /app
+RUN chown node:node /app
 
-# Copy package files
-COPY package*.json ./
+# Switch to node user BEFORE installing dependencies
+USER node
 
-# Install dependencies
+# Copy package files and install as non-root
+COPY --chown=node:node package*.json ./
 RUN npm ci
 
 # Copy application code
-COPY . .
+COPY --chown=node:node . .
 
 # Expose port
 EXPOSE 5173

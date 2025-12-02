@@ -4,17 +4,26 @@ FROM python:3.11-slim
 # Install uv
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Set working directory
+# Create non-root user with same UID as host user
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g ${GID} appuser 2>/dev/null || true && \
+    useradd -m -u ${UID} -g ${GID} appuser 2>/dev/null || \
+    useradd -m -u ${UID} appuser 2>/dev/null || true
+
+# Set working directory and change ownership BEFORE installing deps
 WORKDIR /app
+RUN chown ${UID}:${GID} /app
 
-# Copy dependency files
-COPY pyproject.toml .
+# Switch to non-root user BEFORE installing dependencies
+USER ${UID}
 
-# Install dependencies
+# Copy dependency files and install as non-root
+COPY --chown=${UID}:${GID} pyproject.toml .
 RUN uv sync --no-dev
 
 # Copy application code
-COPY . .
+COPY --chown=${UID}:${GID} . .
 
 # Expose port
 EXPOSE 8000
