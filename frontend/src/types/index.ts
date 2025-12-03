@@ -148,6 +148,27 @@ export interface MarkStats {
 }
 
 /**
+ * マーク内訳の個別アイテム
+ *
+ * パターン別のマーク統計情報を表します。
+ */
+export interface MarkDetailItem {
+  /** このパターンにマッチしたログ数 */
+  count: number;
+  /** マークの種類 */
+  mark_type: "bot" | "suspicious" | "legitimate";
+  /** パターンのメモ・説明 */
+  note: string;
+}
+
+/**
+ * マーク内訳情報
+ *
+ * パターン名をキーとしたマーク内訳の辞書型。
+ */
+export type MarkDetails = Record<string, MarkDetailItem>;
+
+/**
  * 疑わしいアクセスチェックの詳細結果
  *
  * User-Agent、Referrer、パス、IPアドレスなど、個別の項目ごとの
@@ -782,6 +803,8 @@ export interface AggregationItem {
   geo_info?: GeoInfo;
   /** この集計アイテムのマーク統計 */
   mark_stats?: MarkStats;
+  /** この集計アイテムのマーク内訳（パターン別） */
+  mark_details?: MarkDetails;
   /** この集計値自体のマークタイプ（user_agentでグループ化時のみ） */
   mark_type?: "bot" | "suspicious" | "legitimate" | null;
   /** サンプルログ */
@@ -821,6 +844,8 @@ export interface LogAggregationResponse {
   aggregations: AggregationItem[];
   /** マーク統計情報 */
   mark_stats?: MarkStats;
+  /** マーク内訳情報（パターン別） */
+  mark_details?: MarkDetails;
 }
 
 /**

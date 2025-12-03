@@ -20,9 +20,12 @@ import type {
   GroupByOption,
   LogAggregationResponse,
   LogEntry,
+  MarkDetails,
+  MarkStats,
   RawLogsResponse,
 } from '../types';
 import { LogDetailModal } from './LogDetailModal';
+import { MarkDetailsModal } from './MarkDetailsModal';
 
 /**
  * CloudFrontログを集計して統計情報を表示するメインコンポーネント
@@ -68,6 +71,22 @@ export default function LogAggregation() {
   const [detailLogs, setDetailLogs] = useState<RawLogsResponse | null>(null);
   const [detailPage, setDetailPage] = useState(1);
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+
+  // マーク内訳モーダルの状態
+  const [markDetailsModal, setMarkDetailsModal] = useState<{
+    isOpen: boolean;
+    markType: 'bot' | 'suspicious' | 'legitimate';
+    markStats: MarkStats;
+    markDetails: MarkDetails;
+    totalRequests: number;
+    sourceLabel?: string;
+  }>({
+    isOpen: false,
+    markType: 'bot',
+    markStats: { bot: 0, suspicious: 0, legitimate: 0, unmarked: 0 },
+    markDetails: {},
+    totalRequests: 0,
+  });
 
   /**
    * CloudFront Distributionリストを取得する
@@ -230,6 +249,33 @@ export default function LogAggregation() {
     setSelectedValue(null);
     setDetailLogs(null);
     setDetailPage(1);
+  };
+
+  /**
+   * マーク内訳モーダルを開く
+   */
+  const handleOpenMarkDetails = (
+    markType: 'bot' | 'suspicious' | 'legitimate',
+    markStats: MarkStats,
+    markDetails: MarkDetails,
+    totalRequests: number,
+    sourceLabel?: string
+  ) => {
+    setMarkDetailsModal({
+      isOpen: true,
+      markType,
+      markStats,
+      markDetails,
+      totalRequests,
+      sourceLabel,
+    });
+  };
+
+  /**
+   * マーク内訳モーダルを閉じる
+   */
+  const handleCloseMarkDetails = () => {
+    setMarkDetailsModal((prev) => ({ ...prev, isOpen: false }));
   };
 
   /**
@@ -711,22 +757,55 @@ export default function LogAggregation() {
                 {aggregationResponse.mark_stats && (
                   <div className="flex flex-wrap gap-2 pt-2 border-t border-blue-200 mt-2">
                     {aggregationResponse.mark_stats.bot > 0 && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                      <button
+                        type="button"
+                        onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
+                          'bot',
+                          aggregationResponse.mark_stats!,
+                          aggregationResponse.mark_details,
+                          aggregationResponse.total_requests,
+                          '全体'
+                        )}
+                        disabled={!aggregationResponse.mark_details}
+                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800 ${aggregationResponse.mark_details ? 'hover:bg-orange-200 cursor-pointer' : ''}`}
+                      >
                         🤖 ボット: {aggregationResponse.mark_stats.bot.toLocaleString()} (
                         {((aggregationResponse.mark_stats.bot / aggregationResponse.total_requests) * 100).toFixed(1)}%)
-                      </span>
+                      </button>
                     )}
                     {aggregationResponse.mark_stats.suspicious > 0 && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800">
+                      <button
+                        type="button"
+                        onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
+                          'suspicious',
+                          aggregationResponse.mark_stats!,
+                          aggregationResponse.mark_details,
+                          aggregationResponse.total_requests,
+                          '全体'
+                        )}
+                        disabled={!aggregationResponse.mark_details}
+                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800 ${aggregationResponse.mark_details ? 'hover:bg-red-200 cursor-pointer' : ''}`}
+                      >
                         ⚠️ 警戒: {aggregationResponse.mark_stats.suspicious.toLocaleString()} (
                         {((aggregationResponse.mark_stats.suspicious / aggregationResponse.total_requests) * 100).toFixed(1)}%)
-                      </span>
+                      </button>
                     )}
                     {aggregationResponse.mark_stats.legitimate > 0 && (
-                      <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800">
+                      <button
+                        type="button"
+                        onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
+                          'legitimate',
+                          aggregationResponse.mark_stats!,
+                          aggregationResponse.mark_details,
+                          aggregationResponse.total_requests,
+                          '全体'
+                        )}
+                        disabled={!aggregationResponse.mark_details}
+                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 ${aggregationResponse.mark_details ? 'hover:bg-green-200 cursor-pointer' : ''}`}
+                      >
                         ✓ 正常: {aggregationResponse.mark_stats.legitimate.toLocaleString()} (
                         {((aggregationResponse.mark_stats.legitimate / aggregationResponse.total_requests) * 100).toFixed(1)}%)
-                      </span>
+                      </button>
                     )}
                     {aggregationResponse.mark_stats.unmarked > 0 && (
                       <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800">
@@ -821,19 +900,52 @@ export default function LogAggregation() {
                             {item.mark_stats && (
                               <div className="flex flex-wrap gap-1">
                                 {item.mark_stats.bot > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => item.mark_details && handleOpenMarkDetails(
+                                      'bot',
+                                      item.mark_stats!,
+                                      item.mark_details,
+                                      item.request_count,
+                                      `${getGroupByLabel(groupBy)}: ${item.value}`
+                                    )}
+                                    disabled={!item.mark_details}
+                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 ${item.mark_details ? 'hover:bg-orange-200 cursor-pointer' : ''}`}
+                                  >
                                     🤖 {item.mark_stats.bot} ({((item.mark_stats.bot / item.request_count) * 100).toFixed(0)}%)
-                                  </span>
+                                  </button>
                                 )}
                                 {item.mark_stats.suspicious > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => item.mark_details && handleOpenMarkDetails(
+                                      'suspicious',
+                                      item.mark_stats!,
+                                      item.mark_details,
+                                      item.request_count,
+                                      `${getGroupByLabel(groupBy)}: ${item.value}`
+                                    )}
+                                    disabled={!item.mark_details}
+                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 ${item.mark_details ? 'hover:bg-red-200 cursor-pointer' : ''}`}
+                                  >
                                     ⚠️ {item.mark_stats.suspicious} ({((item.mark_stats.suspicious / item.request_count) * 100).toFixed(0)}%)
-                                  </span>
+                                  </button>
                                 )}
                                 {item.mark_stats.legitimate > 0 && (
-                                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                  <button
+                                    type="button"
+                                    onClick={() => item.mark_details && handleOpenMarkDetails(
+                                      'legitimate',
+                                      item.mark_stats!,
+                                      item.mark_details,
+                                      item.request_count,
+                                      `${getGroupByLabel(groupBy)}: ${item.value}`
+                                    )}
+                                    disabled={!item.mark_details}
+                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 ${item.mark_details ? 'hover:bg-green-200 cursor-pointer' : ''}`}
+                                  >
                                     ✓ {item.mark_stats.legitimate} ({((item.mark_stats.legitimate / item.request_count) * 100).toFixed(0)}%)
-                                  </span>
+                                  </button>
                                 )}
                                 {item.mark_stats.unmarked > 0 && (
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
@@ -1048,6 +1160,17 @@ export default function LogAggregation() {
         profile={profile}
         distributionId={distributionId}
         onClose={() => setSelectedLog(null)}
+      />
+
+      {/* マーク内訳モーダル */}
+      <MarkDetailsModal
+        isOpen={markDetailsModal.isOpen}
+        onClose={handleCloseMarkDetails}
+        markType={markDetailsModal.markType}
+        markStats={markDetailsModal.markStats}
+        markDetails={markDetailsModal.markDetails}
+        totalRequests={markDetailsModal.totalRequests}
+        sourceLabel={markDetailsModal.sourceLabel}
       />
     </div>
   );
