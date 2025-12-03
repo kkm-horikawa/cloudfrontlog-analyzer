@@ -3,11 +3,12 @@
  *
  * ログマークパターンの一覧表示、作成、編集、削除を行うための管理画面コンポーネント。
  * IP、パス、User-Agent、クエリストリング、リファラの任意の組み合わせでパターンを登録できます。
+ * カテゴリの管理機能も提供します。
  */
 
 import { useEffect, useState } from 'react';
 import { CloudFrontService } from '../services/CloudFrontService';
-import type { LogMarkPattern } from '../types';
+import type { LogMarkCategory, LogMarkPattern } from '../types';
 
 /**
  * LogMarkManagementコンポーネントのProps
@@ -19,10 +20,12 @@ interface LogMarkManagementProps {
   distributionId?: string;
 }
 
+type TabType = 'patterns' | 'categories';
+
 /**
  * ログマーク管理画面コンポーネント
  *
- * ログマークパターンのCRUD操作を提供します。
+ * ログマークパターンとカテゴリのCRUD操作を提供します。
  *
  * @param props - コンポーネントのProps
  * @param props.profile - AWSプロファイル名
@@ -30,14 +33,26 @@ interface LogMarkManagementProps {
  * @returns ログマーク管理UI
  */
 export function LogMarkManagement({ profile, distributionId }: LogMarkManagementProps) {
+  const [activeTab, setActiveTab] = useState<TabType>('patterns');
   const [patterns, setPatterns] = useState<LogMarkPattern[]>([]);
+  const [categories, setCategories] = useState<LogMarkCategory[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingPattern, setEditingPattern] = useState<LogMarkPattern | null>(null);
 
+  // カテゴリ編集用の状態
+  const [showCategoryForm, setShowCategoryForm] = useState(false);
+  const [editingCategory, setEditingCategory] = useState<LogMarkCategory | null>(null);
+  const [categoryFormData, setCategoryFormData] = useState<Omit<LogMarkCategory, 'id' | 'created_at' | 'updated_at'>>({
+    name: '',
+    slug: '',
+    color: '#6B7280',
+    description: '',
+  });
+
   // フォームの状態
-  const [formData, setFormData] = useState<Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at'>>({
+  const [formData, setFormData] = useState<Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at' | 'category'> & { category_id?: number }>({
     distribution_id: distributionId || null,
     user_agent_pattern: null,
     ip_pattern: null,
@@ -46,7 +61,7 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
     referrer_pattern: null,
     org_pattern: null,
     match_type: 'partial',
-    mark_type: 'bot',
+    category_id: undefined,
     note: '',
     is_active: true,
   });
@@ -68,8 +83,26 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
     }
   };
 
+  /**
+   * カテゴリ一覧を取得
+   */
+  const loadCategories = async () => {
+    try {
+      const service = new CloudFrontService(profile);
+      const data = await service.getLogMarkCategories();
+      setCategories(data);
+      // 初回読み込み時にデフォルトカテゴリを設定
+      if (data.length > 0 && !formData.category_id) {
+        setFormData(prev => ({ ...prev, category_id: data[0].id }));
+      }
+    } catch (err) {
+      console.error('Failed to load categories:', err);
+    }
+  };
+
   useEffect(() => {
     loadPatterns();
+    loadCategories();
   }, [profile, distributionId]);
 
   /**
@@ -85,7 +118,7 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
       referrer_pattern: null,
       org_pattern: null,
       match_type: 'partial',
-      mark_type: 'bot',
+      category_id: categories.length > 0 ? categories[0].id : undefined,
       note: '',
       is_active: true,
     });
@@ -141,7 +174,7 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
       referrer_pattern: pattern.referrer_pattern,
       org_pattern: pattern.org_pattern,
       match_type: pattern.match_type,
-      mark_type: pattern.mark_type,
+      category_id: pattern.category?.id,
       note: pattern.note || '',
       is_active: pattern.is_active,
     });
@@ -166,48 +199,125 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
   };
 
   /**
-   * マークタイプのバッジ色を取得
+   * カテゴリのバッジスタイルを取得
    */
-  const getMarkTypeBadgeColor = (markType: string) => {
-    switch (markType) {
-      case 'bot':
-        return 'bg-orange-100 text-orange-800';
-      case 'suspicious':
-        return 'bg-red-100 text-red-800';
-      case 'legitimate':
-        return 'bg-green-100 text-green-800';
-      default:
-        return 'bg-gray-100 text-gray-800';
+  const getCategoryBadgeStyle = (category: LogMarkCategory | null | undefined) => {
+    if (!category) {
+      return { backgroundColor: '#f3f4f6', color: '#374151' };
+    }
+    return {
+      backgroundColor: `${category.color}20`,
+      color: category.color,
+    };
+  };
+
+  /**
+   * カテゴリフォームをリセット
+   */
+  const resetCategoryForm = () => {
+    setCategoryFormData({
+      name: '',
+      slug: '',
+      color: '#6B7280',
+      description: '',
+    });
+    setEditingCategory(null);
+    setShowCategoryForm(false);
+  };
+
+  /**
+   * カテゴリを作成または更新
+   */
+  const handleCategorySubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    try {
+      const service = new CloudFrontService(profile);
+
+      if (editingCategory) {
+        await service.updateLogMarkCategory(editingCategory.id, categoryFormData);
+      } else {
+        await service.createLogMarkCategory(categoryFormData);
+      }
+
+      await loadCategories();
+      resetCategoryForm();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save category');
     }
   };
 
   /**
-   * マークタイプのラベルを取得
+   * カテゴリを編集
    */
-  const getMarkTypeLabel = (markType: string) => {
-    switch (markType) {
-      case 'bot':
-        return '🤖 ボット';
-      case 'suspicious':
-        return '⚠️ 疑わしい';
-      case 'legitimate':
-        return '✅ 正常';
-      default:
-        return markType;
+  const handleEditCategory = (category: LogMarkCategory) => {
+    setEditingCategory(category);
+    setCategoryFormData({
+      name: category.name,
+      slug: category.slug,
+      color: category.color,
+      description: category.description || '',
+    });
+    setShowCategoryForm(true);
+  };
+
+  /**
+   * カテゴリを削除
+   */
+  const handleDeleteCategory = async (categoryId: number) => {
+    if (!confirm('このカテゴリを削除してもよろしいですか？\n関連するパターンがある場合は削除できません。')) {
+      return;
     }
+
+    try {
+      const service = new CloudFrontService(profile);
+      await service.deleteLogMarkCategory(categoryId);
+      await loadCategories();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete category');
+    }
+  };
+
+  /**
+   * カテゴリに関連するパターン数を取得
+   */
+  const getPatternCountForCategory = (categoryId: number) => {
+    return patterns.filter((p) => p.category?.id === categoryId).length;
   };
 
   return (
     <div className="p-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">ログマークパターン管理</h2>
-        <button
-          type="button"
-          onClick={() => setShowForm(!showForm)}
-          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {showForm ? 'キャンセル' : '+ 新規作成'}
-        </button>
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-gray-900 mb-4">ログマーク管理</h2>
+
+        {/* タブ */}
+        <div className="border-b border-gray-200">
+          <nav className="-mb-px flex space-x-8">
+            <button
+              type="button"
+              onClick={() => setActiveTab('patterns')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'patterns'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              パターン管理
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('categories')}
+              className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                activeTab === 'categories'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+              }`}
+            >
+              カテゴリ管理
+            </button>
+          </nav>
+        </div>
       </div>
 
       {error && (
@@ -215,6 +325,213 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
           {error}
         </div>
       )}
+
+      {/* カテゴリ管理タブ */}
+      {activeTab === 'categories' && (
+        <>
+          <div className="mb-6 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">カテゴリ一覧</h3>
+            <button
+              type="button"
+              onClick={() => setShowCategoryForm(!showCategoryForm)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {showCategoryForm ? 'キャンセル' : '+ 新規作成'}
+            </button>
+          </div>
+
+          {/* カテゴリ作成/編集フォーム */}
+          {showCategoryForm && (
+            <div className="mb-6 p-6 bg-white shadow rounded-lg border border-gray-200">
+              <h4 className="text-lg font-semibold text-gray-900 mb-4">
+                {editingCategory ? 'カテゴリを編集' : '新しいカテゴリを作成'}
+              </h4>
+              <form onSubmit={handleCategorySubmit}>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="cat_name" className="block text-sm font-medium text-gray-700 mb-1">
+                      名前 <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="cat_name"
+                      value={categoryFormData.name}
+                      onChange={(e) => setCategoryFormData({ ...categoryFormData, name: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="例: ボット"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label htmlFor="cat_slug" className="block text-sm font-medium text-gray-700 mb-1">
+                      スラッグ <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      id="cat_slug"
+                      value={categoryFormData.slug}
+                      onChange={(e) => setCategoryFormData({ ...categoryFormData, slug: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="例: bot"
+                      required
+                    />
+                    <p className="text-xs text-gray-500 mt-1">半角英数字とハイフンのみ使用可</p>
+                  </div>
+
+                  <div>
+                    <label htmlFor="cat_color" className="block text-sm font-medium text-gray-700 mb-1">
+                      カラー
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="color"
+                        id="cat_color"
+                        value={categoryFormData.color}
+                        onChange={(e) => setCategoryFormData({ ...categoryFormData, color: e.target.value })}
+                        className="h-10 w-14 border border-gray-300 rounded-md cursor-pointer"
+                      />
+                      <input
+                        type="text"
+                        value={categoryFormData.color}
+                        onChange={(e) => setCategoryFormData({ ...categoryFormData, color: e.target.value })}
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="#6B7280"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="cat_description" className="block text-sm font-medium text-gray-700 mb-1">
+                      説明
+                    </label>
+                    <input
+                      type="text"
+                      id="cat_description"
+                      value={categoryFormData.description || ''}
+                      onChange={(e) => setCategoryFormData({ ...categoryFormData, description: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="例: 検索エンジンのクローラー"
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-4 flex gap-2">
+                  <button
+                    type="submit"
+                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {editingCategory ? '更新' : '作成'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetCategoryForm}
+                    className="px-4 py-2 bg-gray-300 text-gray-700 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </form>
+            </div>
+          )}
+
+          {/* カテゴリ一覧 */}
+          {isLoading ? (
+            <div className="text-center py-8 text-gray-600">読み込み中...</div>
+          ) : categories.length === 0 ? (
+            <div className="text-center py-8 text-gray-600">
+              カテゴリが登録されていません。「+ 新規作成」ボタンから追加してください。
+            </div>
+          ) : (
+            <div className="bg-white shadow rounded-lg overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y divide-gray-200">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        カテゴリ
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        スラッグ
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        説明
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        パターン数
+                      </th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                        アクション
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-gray-200">
+                    {categories.map((category) => (
+                      <tr key={category.id} className="hover:bg-gray-50">
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className="w-4 h-4 rounded-full inline-block"
+                              style={{ backgroundColor: category.color }}
+                            />
+                            <span
+                              className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                              style={getCategoryBadgeStyle(category)}
+                            >
+                              {category.name}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">
+                          {category.slug}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-gray-500">
+                          {category.description || '-'}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-900">
+                          {getPatternCountForCategory(category.id)}
+                        </td>
+                        <td className="px-4 py-3 whitespace-nowrap text-sm">
+                          <button
+                            type="button"
+                            onClick={() => handleEditCategory(category)}
+                            className="text-blue-600 hover:text-blue-800 mr-3"
+                          >
+                            編集
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteCategory(category.id)}
+                            className="text-red-600 hover:text-red-800"
+                            disabled={getPatternCountForCategory(category.id) > 0}
+                            title={getPatternCountForCategory(category.id) > 0 ? '関連パターンがあるため削除できません' : ''}
+                          >
+                            削除
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* パターン管理タブ */}
+      {activeTab === 'patterns' && (
+        <>
+          <div className="mb-6 flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">パターン一覧</h3>
+            <button
+              type="button"
+              onClick={() => setShowForm(!showForm)}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              {showForm ? 'キャンセル' : '+ 新規作成'}
+            </button>
+          </div>
 
       {/* 作成/編集フォーム */}
       {showForm && (
@@ -333,20 +650,24 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
                 </select>
               </div>
 
-              {/* Mark Type */}
+              {/* Category */}
               <div>
-                <label htmlFor="mark_type" className="block text-sm font-medium text-gray-700 mb-1">
-                  マークタイプ
+                <label htmlFor="category_id" className="block text-sm font-medium text-gray-700 mb-1">
+                  カテゴリ
                 </label>
                 <select
-                  id="mark_type"
-                  value={formData.mark_type}
-                  onChange={(e) => setFormData({ ...formData, mark_type: e.target.value as 'bot' | 'suspicious' | 'legitimate' })}
+                  id="category_id"
+                  value={formData.category_id || ''}
+                  onChange={(e) => setFormData({ ...formData, category_id: e.target.value ? Number(e.target.value) : undefined })}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
                 >
-                  <option value="bot">🤖 ボット</option>
-                  <option value="suspicious">⚠️ 疑わしい</option>
-                  <option value="legitimate">✅ 正常</option>
+                  <option value="">カテゴリを選択...</option>
+                  {categories.map((cat) => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.name}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -413,7 +734,7 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    マークタイプ
+                    カテゴリ
                   </th>
                   <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     パターン条件
@@ -436,8 +757,11 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
                 {patterns.map((pattern) => (
                   <tr key={pattern.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getMarkTypeBadgeColor(pattern.mark_type)}`}>
-                        {getMarkTypeLabel(pattern.mark_type)}
+                      <span
+                        className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium"
+                        style={getCategoryBadgeStyle(pattern.category)}
+                      >
+                        {pattern.category?.name || '未設定'}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-900">
@@ -498,6 +822,8 @@ export function LogMarkManagement({ profile, distributionId }: LogMarkManagement
             </table>
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

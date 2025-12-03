@@ -4,7 +4,34 @@
 
 from rest_framework import serializers
 
-from api.models import LogMarkPattern
+from api.models import LogMarkCategory, LogMarkPattern
+
+
+class LogMarkCategorySerializer(serializers.ModelSerializer):
+    """LogMarkCategory のシリアライザー。
+
+    Attributes:
+        id: カテゴリID
+        name: カテゴリ名
+        slug: スラッグ
+        color: 表示色
+        description: 説明
+        created_at: 作成日時
+        updated_at: 更新日時
+    """
+
+    class Meta:
+        model = LogMarkCategory
+        fields = [
+            "id",
+            "name",
+            "slug",
+            "color",
+            "description",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = ["id", "created_at", "updated_at"]
 
 
 class LogMarkPatternSerializer(serializers.ModelSerializer):
@@ -20,12 +47,14 @@ class LogMarkPatternSerializer(serializers.ModelSerializer):
         referrer_pattern: リファラパターン
         org_pattern: 組織名パターン
         match_type: マッチング方法
-        mark_type: マークの種類
+        category: カテゴリ情報
         note: メモ
         is_active: アクティブフラグ
         created_at: 作成日時
         updated_at: 更新日時
     """
+
+    category = LogMarkCategorySerializer(read_only=True)
 
     class Meta:
         model = LogMarkPattern
@@ -39,7 +68,7 @@ class LogMarkPatternSerializer(serializers.ModelSerializer):
             "referrer_pattern",
             "org_pattern",
             "match_type",
-            "mark_type",
+            "category",
             "note",
             "is_active",
             "created_at",
@@ -52,7 +81,14 @@ class LogMarkPatternCreateSerializer(serializers.ModelSerializer):
     """LogMarkPattern のシリアライザー（作成・更新用）。
 
     作成・更新時のバリデーションを実施します。
+    category_id でカテゴリを指定します。
     """
+
+    category_id = serializers.PrimaryKeyRelatedField(
+        queryset=LogMarkCategory.objects.all(),
+        source="category",
+        write_only=True,
+    )
 
     class Meta:
         model = LogMarkPattern
@@ -66,7 +102,7 @@ class LogMarkPatternCreateSerializer(serializers.ModelSerializer):
             "referrer_pattern",
             "org_pattern",
             "match_type",
-            "mark_type",
+            "category_id",
             "note",
             "is_active",
         ]

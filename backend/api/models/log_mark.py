@@ -1,10 +1,56 @@
 """
 Log Marking Models
 
+LogMarkCategory モデルは、ログマークのカテゴリを管理します。
 LogMarkPattern モデルは、User-Agent パターンに基づいてログにマークを付けるためのパターンを保存します。
 """
 
 from django.db import models
+
+
+class LogMarkCategory(models.Model):
+    """ログマークのカテゴリ。
+
+    Attributes:
+        name: カテゴリ名（表示用）
+        slug: カテゴリのスラッグ（識別子）
+        color: 表示色（HEXカラーコード）
+        description: 説明
+        created_at: 作成日時
+        updated_at: 更新日時
+    """
+
+    name = models.CharField(
+        max_length=100,
+        help_text="カテゴリ名（表示用）",
+    )
+    slug = models.CharField(
+        max_length=50,
+        unique=True,
+        db_index=True,
+        help_text="カテゴリのスラッグ（識別子）",
+    )
+    color = models.CharField(
+        max_length=7,
+        default="#6B7280",
+        help_text="表示色（HEXカラーコード）",
+    )
+    description = models.TextField(
+        null=True,
+        blank=True,
+        help_text="説明",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "log_mark_categories"
+        ordering = ["name"]
+        verbose_name = "Log Mark Category"
+        verbose_name_plural = "Log Mark Categories"
+
+    def __str__(self):
+        return self.name
 
 
 class LogMarkPattern(models.Model):
@@ -18,7 +64,7 @@ class LogMarkPattern(models.Model):
         query_string_pattern: マッチング対象のクエリストリングパターン（省略可）
         referrer_pattern: マッチング対象のリファラパターン（省略可）
         match_type: マッチング方法（exact/partial）
-        mark_type: マークの種類（bot/suspicious/legitimate）
+        category: マークのカテゴリ（ForeignKey to LogMarkCategory）
         note: メモ・説明
         is_active: アクティブフラグ
         created_at: 作成日時
@@ -28,12 +74,6 @@ class LogMarkPattern(models.Model):
     MATCH_TYPE_CHOICES = [
         ("exact", "Exact Match"),
         ("partial", "Partial Match"),
-    ]
-
-    MARK_TYPE_CHOICES = [
-        ("bot", "Bot"),
-        ("suspicious", "Suspicious"),
-        ("legitimate", "Legitimate"),
     ]
 
     distribution_id = models.CharField(
@@ -91,8 +131,13 @@ class LogMarkPattern(models.Model):
         default="partial",
         help_text="マッチング方法",
     )
-    mark_type = models.CharField(
-        max_length=20, choices=MARK_TYPE_CHOICES, db_index=True, help_text="マークの種類"
+    category = models.ForeignKey(
+        LogMarkCategory,
+        on_delete=models.PROTECT,
+        related_name="patterns",
+        db_index=True,
+        null=True,  # 一時的にnull許可（マイグレーション後に削除）
+        help_text="マークのカテゴリ",
     )
     note = models.TextField(null=True, blank=True, help_text="メモ・説明")
     is_active = models.BooleanField(
@@ -122,7 +167,7 @@ class LogMarkPattern(models.Model):
         if self.org_pattern:
             patterns.append(f"Org:{self.org_pattern[:20]}")
         pattern_str = " & ".join(patterns) if patterns else "No pattern"
-        return f"{self.mark_type}: {pattern_str} ({self.match_type})"
+        return f"{self.category.name}: {pattern_str} ({self.match_type})"
 
     def matches(
         self,

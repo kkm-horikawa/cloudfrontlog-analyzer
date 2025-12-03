@@ -1646,22 +1646,23 @@ class LogService(AWSServiceBase):
                 item_logs_for_marks.append({"userAgent": ua_str})
             item_marks = get_log_marks_for_logs(item_logs_for_marks, distribution_id)
 
-            # マークタイプ別にカウント、パターン別の内訳も収集
-            item_mark_stats = {"bot": 0, "suspicious": 0, "legitimate": 0, "unmarked": 0}
+            # カテゴリ別にカウント、パターン別の内訳も収集
+            item_mark_stats = {"unmarked": 0}  # カテゴリslugをキーとして動的に追加
             item_mark_details = {}  # パターン別の内訳
             for log in item_logs_for_marks:
                 user_agent = log.get("userAgent", "")
                 if user_agent and user_agent in item_marks:
                     mark_info = item_marks[user_agent]
-                    mark_type = mark_info["mark_type"]
-                    item_mark_stats[mark_type] = item_mark_stats.get(mark_type, 0) + 1
+                    category = mark_info.get("category", {})
+                    category_slug = category.get("slug", "unknown") if category else "unknown"
+                    item_mark_stats[category_slug] = item_mark_stats.get(category_slug, 0) + 1
 
                     # パターン別の内訳を記録
                     pattern = mark_info.get("pattern", "unknown")
                     if pattern not in item_mark_details:
                         item_mark_details[pattern] = {
                             "count": 0,
-                            "mark_type": mark_type,
+                            "category": category,
                             "note": mark_info.get("note", ""),
                         }
                     item_mark_details[pattern]["count"] += 1
@@ -1671,15 +1672,15 @@ class LogService(AWSServiceBase):
             mark_stats_per_item.append(item_mark_stats)
             mark_details_per_item.append(item_mark_details)
 
-            # この集計値自体のマークタイプを取得
-            mark_type = None
+            # この集計値自体のカテゴリを取得
+            mark_category = None
             if group_by == "user_agent":
-                # このUser-Agentのマークを取得（文字列化）
+                # このUser-Agentのカテゴリを取得（文字列化）
                 value_str = str(value) if value is not None and str(value) != "nan" else ""
                 test_log = [{"userAgent": value_str}]
                 value_marks = get_log_marks_for_logs(test_log, distribution_id)
                 if value_str and value_str in value_marks:
-                    mark_type = value_marks[value_str]["mark_type"]
+                    mark_category = value_marks[value_str].get("category")
             elif group_by == "ip":
                 # IPアドレスの場合、まず組織情報からボット判定
                 from api.endpoints.log_marks.services import check_ip_is_bot
@@ -1688,40 +1689,45 @@ class LogService(AWSServiceBase):
                 ip_str = str(value) if value is not None else None
                 ip_bot_mark = check_ip_is_bot(ip_str) if ip_str else None
                 if ip_bot_mark:
-                    mark_type = ip_bot_mark["mark_type"]
+                    mark_category = ip_bot_mark.get("category")
                 else:
-                    # 組織ベースで判定できない場合、mark_statsから判定
-                    # ボットの割合が50%以上の場合は"bot"とマーク
-                    total_marked = sum(item_mark_stats.values())
+                    # 組織ベースで判定できない場合、mark_statsから最も多いカテゴリを取得
+                    total_marked = sum(v for k, v in item_mark_stats.items() if k != "unmarked")
                     if total_marked > 0:
-                        bot_percentage = item_mark_stats["bot"] / total_marked
-                        suspicious_percentage = item_mark_stats["suspicious"] / total_marked
-
-                        if bot_percentage >= 0.5:
-                            mark_type = "bot"
-                        elif suspicious_percentage >= 0.5:
-                            mark_type = "suspicious"
-                        elif item_mark_stats["legitimate"] / total_marked >= 0.5:
-                            mark_type = "legitimate"
+                        # unmarked以外で最も多いカテゴリを取得
+                        max_category_slug = max(
+                            ((k, v) for k, v in item_mark_stats.items() if k != "unmarked"),
+                            key=lambda x: x[1],
+                            default=(None, 0)
+                        )[0]
+                        # カテゴリ情報を取得するためにdetailsから探す
+                        if max_category_slug and max_category_slug in item_mark_stats:
+                            for detail in item_mark_details.values():
+                                cat = detail.get("category", {})
+                                if cat and cat.get("slug") == max_category_slug:
+                                    mark_category = cat
+                                    break
             else:
-                # referrer、query_stringなどの場合、mark_statsから判定
-                total_marked = sum(item_mark_stats.values())
+                # referrer、query_stringなどの場合、mark_statsから最も多いカテゴリを取得
+                total_marked = sum(v for k, v in item_mark_stats.items() if k != "unmarked")
                 if total_marked > 0:
-                    bot_percentage = item_mark_stats["bot"] / total_marked
-                    suspicious_percentage = item_mark_stats["suspicious"] / total_marked
-
-                    if bot_percentage >= 0.5:
-                        mark_type = "bot"
-                    elif suspicious_percentage >= 0.5:
-                        mark_type = "suspicious"
-                    elif item_mark_stats["legitimate"] / total_marked >= 0.5:
-                        mark_type = "legitimate"
-            mark_types.append(mark_type)
+                    max_category_slug = max(
+                        ((k, v) for k, v in item_mark_stats.items() if k != "unmarked"),
+                        key=lambda x: x[1],
+                        default=(None, 0)
+                    )[0]
+                    if max_category_slug:
+                        for detail in item_mark_details.values():
+                            cat = detail.get("category", {})
+                            if cat and cat.get("slug") == max_category_slug:
+                                mark_category = cat
+                                break
+            mark_types.append(mark_category)
 
         agg_result["sample_log"] = sample_logs
         agg_result["mark_stats"] = mark_stats_per_item
         agg_result["mark_details"] = mark_details_per_item
-        agg_result["mark_type"] = mark_types
+        agg_result["mark_category"] = mark_types
 
         # datetime列をJSTに変換
         agg_result["first_seen"] = pd.to_datetime(
@@ -1743,22 +1749,23 @@ class LogService(AWSServiceBase):
         ).to_dict("records")
         marks = get_log_marks_for_logs(logs_for_marks, distribution_id)
 
-        # Count marks by type and collect pattern details
-        mark_stats = {"bot": 0, "suspicious": 0, "legitimate": 0, "unmarked": 0}
+        # Count marks by category and collect pattern details
+        mark_stats = {"unmarked": 0}  # カテゴリslugをキーとして動的に追加
         mark_details = {}  # 全体のパターン別内訳
         for log in logs_for_marks:
             user_agent = log.get("userAgent", "")
             if user_agent and user_agent in marks:
                 mark_info = marks[user_agent]
-                mark_type = mark_info["mark_type"]
-                mark_stats[mark_type] = mark_stats.get(mark_type, 0) + 1
+                category = mark_info.get("category", {})
+                category_slug = category.get("slug", "unknown") if category else "unknown"
+                mark_stats[category_slug] = mark_stats.get(category_slug, 0) + 1
 
                 # パターン別の内訳を記録
                 pattern = mark_info.get("pattern", "unknown")
                 if pattern not in mark_details:
                     mark_details[pattern] = {
                         "count": 0,
-                        "mark_type": mark_type,
+                        "category": category,
                         "note": mark_info.get("note", ""),
                     }
                 mark_details[pattern]["count"] += 1

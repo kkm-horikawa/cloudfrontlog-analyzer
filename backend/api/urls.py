@@ -20,6 +20,8 @@ from .endpoints.logs.views import RawLogsListView
 
 # Log Marks
 from .endpoints.log_marks.views import check_log_marks
+from .endpoints.log_marks.views import log_mark_categories_list
+from .endpoints.log_marks.views import log_mark_category_detail
 from .endpoints.log_marks.views import log_mark_pattern_detail
 from .endpoints.log_marks.views import log_mark_patterns_list
 
@@ -64,6 +66,8 @@ urlpatterns = [
     path("log-marks/", log_mark_patterns_list, name="log-mark-patterns-list"),
     path("log-marks/<int:pk>/", log_mark_pattern_detail, name="log-mark-pattern-detail"),
     path("log-marks/check/", check_log_marks, name="check-log-marks"),
+    path("log-mark-categories/", log_mark_categories_list, name="log-mark-categories-list"),
+    path("log-mark-categories/<int:pk>/", log_mark_category_detail, name="log-mark-category-detail"),
     # IP Information
     path("ip-info/<str:ip_address>/", IPInfoView.as_view(), name="ip-info"),
     # WAF Operations

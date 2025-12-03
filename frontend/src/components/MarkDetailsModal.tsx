@@ -1,11 +1,11 @@
 /**
  * @file マーク内訳表示モーダルコンポーネント
  *
- * ログ集計結果のマーク（ボット、疑わしい、正規）の内訳を
+ * ログ集計結果のマーク（カテゴリ別）の内訳を
  * モーダルウィンドウで表示します。
  */
 
-import type { MarkDetails, MarkStats } from '../types';
+import type { LogMarkCategory, MarkDetails, MarkStats } from '../types';
 
 /**
  * MarkDetailsModalコンポーネントのProps
@@ -15,8 +15,8 @@ interface MarkDetailsModalProps {
   isOpen: boolean;
   /** モーダルを閉じる際のコールバック関数 */
   onClose: () => void;
-  /** 表示するマーク種別（'bot' | 'suspicious' | 'legitimate'） */
-  markType: 'bot' | 'suspicious' | 'legitimate';
+  /** 表示するカテゴリslug */
+  markType: string;
   /** マーク統計情報 */
   markStats: MarkStats;
   /** マーク内訳（パターン別） */
@@ -25,37 +25,9 @@ interface MarkDetailsModalProps {
   totalRequests: number;
   /** 表示元のラベル（例: "IPアドレス: 1.2.3.4"） */
   sourceLabel?: string;
+  /** カテゴリ情報（動的スタイル用） */
+  category?: LogMarkCategory;
 }
-
-/**
- * マーク種別の表示設定
- */
-const MARK_TYPE_CONFIG = {
-  bot: {
-    label: 'ボット',
-    emoji: '🤖',
-    bgColor: 'bg-orange-100',
-    textColor: 'text-orange-800',
-    borderColor: 'border-orange-200',
-    headerBg: 'bg-orange-50',
-  },
-  suspicious: {
-    label: '警戒',
-    emoji: '⚠️',
-    bgColor: 'bg-red-100',
-    textColor: 'text-red-800',
-    borderColor: 'border-red-200',
-    headerBg: 'bg-red-50',
-  },
-  legitimate: {
-    label: '正常',
-    emoji: '✓',
-    bgColor: 'bg-green-100',
-    textColor: 'text-green-800',
-    borderColor: 'border-green-200',
-    headerBg: 'bg-green-50',
-  },
-};
 
 /**
  * マーク内訳表示モーダルコンポーネント
@@ -74,14 +46,18 @@ export function MarkDetailsModal({
 }: MarkDetailsModalProps) {
   if (!isOpen) return null;
 
-  const config = MARK_TYPE_CONFIG[markType];
-  const count = markStats[markType];
+  const count = markStats[markType] || 0;
   const percentage = totalRequests > 0 ? ((count / totalRequests) * 100).toFixed(1) : '0';
 
-  // markDetailsから該当するmarkTypeのパターンをフィルタしてソート
+  // markDetailsから該当するカテゴリslugのパターンをフィルタしてソート
   const filteredDetails = Object.entries(markDetails)
-    .filter(([, detail]) => detail.mark_type === markType)
+    .filter(([, detail]) => detail.category?.slug === markType)
     .sort(([, a], [, b]) => b.count - a.count);
+
+  // カテゴリ情報を取得（最初のパターンから）
+  const category = filteredDetails.length > 0 ? filteredDetails[0][1].category : null;
+  const categoryColor = category?.color || '#6b7280';
+  const categoryName = category?.name || markType;
 
   return (
     <div
@@ -100,10 +76,24 @@ export function MarkDetailsModal({
         role="document"
       >
         {/* モーダルヘッダー */}
-        <div className={`${config.headerBg} border-b ${config.borderColor} px-6 py-4 flex items-center justify-between`}>
+        <div
+          className="border-b px-6 py-4 flex items-center justify-between"
+          style={{
+            backgroundColor: `${categoryColor}15`,
+            borderColor: `${categoryColor}40`,
+          }}
+        >
           <div>
-            <h2 id="mark-details-modal-title" className={`text-xl font-bold ${config.textColor}`}>
-              {config.emoji} {config.label}の内訳
+            <h2
+              id="mark-details-modal-title"
+              className="text-xl font-bold flex items-center gap-2"
+              style={{ color: categoryColor }}
+            >
+              <span
+                className="w-4 h-4 rounded-full inline-block"
+                style={{ backgroundColor: categoryColor }}
+              />
+              {categoryName}の内訳
             </h2>
             {sourceLabel && (
               <p className="text-sm text-gray-600 mt-1">{sourceLabel}</p>
@@ -133,9 +123,18 @@ export function MarkDetailsModal({
         </div>
 
         {/* サマリー */}
-        <div className={`${config.bgColor} px-6 py-3 border-b ${config.borderColor}`}>
+        <div
+          className="px-6 py-3 border-b"
+          style={{
+            backgroundColor: `${categoryColor}10`,
+            borderColor: `${categoryColor}30`,
+          }}
+        >
           <div className="flex items-center justify-between">
-            <span className={`text-sm font-medium ${config.textColor}`}>
+            <span
+              className="text-sm font-medium"
+              style={{ color: categoryColor }}
+            >
               合計: {count.toLocaleString()} 件 ({percentage}%)
             </span>
             <span className="text-sm text-gray-600">
@@ -151,12 +150,22 @@ export function MarkDetailsModal({
               {filteredDetails.map(([pattern, detail]) => (
                 <div
                   key={pattern}
-                  className={`border ${config.borderColor} rounded-lg p-4 ${config.bgColor} bg-opacity-30`}
+                  className="rounded-lg p-4"
+                  style={{
+                    border: `1px solid ${categoryColor}30`,
+                    backgroundColor: `${categoryColor}08`,
+                  }}
                 >
                   <div className="flex items-start justify-between">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${config.bgColor} ${config.textColor}`}>
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                          style={{
+                            backgroundColor: `${categoryColor}20`,
+                            color: categoryColor,
+                          }}
+                        >
                           {detail.count.toLocaleString()} 件
                         </span>
                         <span className="text-xs text-gray-500">

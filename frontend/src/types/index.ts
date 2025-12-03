@@ -80,14 +80,36 @@ export interface IPInfo {
 }
 
 /**
+ * ログマークカテゴリ
+ *
+ * マークのカテゴリを表します。ユーザーが自由に作成可能。
+ */
+export interface LogMarkCategory {
+  /** カテゴリID */
+  id: number;
+  /** カテゴリ名（表示用） */
+  name: string;
+  /** スラッグ（識別子） */
+  slug: string;
+  /** 表示色（HEXカラーコード） */
+  color: string;
+  /** 説明 */
+  description?: string | null;
+  /** 作成日時（ISO 8601形式） */
+  created_at?: string;
+  /** 更新日時（ISO 8601形式） */
+  updated_at?: string;
+}
+
+/**
  * ログマーク情報
  *
  * User-Agentパターンに基づくログのマーキング情報を表します。
  * ボット、疑わしいアクセス、正規アクセスなどを識別します。
  */
 export interface LogMark {
-  /** マークの種類（bot: ボット、suspicious: 疑わしい、legitimate: 正規） */
-  mark_type: "bot" | "suspicious" | "legitimate";
+  /** カテゴリ情報 */
+  category: LogMarkCategory;
   /** マッチしたUser-Agentパターン */
   pattern: string;
   /** メモ・説明 */
@@ -119,8 +141,10 @@ export interface LogMarkPattern {
   org_pattern?: string | null;
   /** マッチング方法（exact: 完全一致、partial: 部分一致） */
   match_type: "exact" | "partial";
-  /** マークの種類 */
-  mark_type: "bot" | "suspicious" | "legitimate";
+  /** カテゴリ情報（読み取り用） */
+  category?: LogMarkCategory | null;
+  /** カテゴリID（作成・更新用） */
+  category_id?: number;
   /** メモ・説明 */
   note?: string;
   /** アクティブフラグ */
@@ -134,17 +158,12 @@ export interface LogMarkPattern {
 /**
  * マーク統計情報
  *
- * ログ集約時のマークタイプ別の件数統計を表します。
+ * ログ集約時のカテゴリslug別の件数統計を表します。
+ * カテゴリslugをキーとし、件数を値とする動的なオブジェクト。
  */
 export interface MarkStats {
-  /** ボットとマークされたログ数 */
-  bot: number;
-  /** 疑わしいとマークされたログ数 */
-  suspicious: number;
-  /** 正規とマークされたログ数 */
-  legitimate: number;
-  /** マークされていないログ数 */
-  unmarked: number;
+  /** カテゴリslugをキーとした件数 */
+  [categorySlug: string]: number;
 }
 
 /**
@@ -155,8 +174,8 @@ export interface MarkStats {
 export interface MarkDetailItem {
   /** このパターンにマッチしたログ数 */
   count: number;
-  /** マークの種類 */
-  mark_type: "bot" | "suspicious" | "legitimate";
+  /** カテゴリ情報 */
+  category: LogMarkCategory;
   /** パターンのメモ・説明 */
   note: string;
 }
@@ -805,8 +824,8 @@ export interface AggregationItem {
   mark_stats?: MarkStats;
   /** この集計アイテムのマーク内訳（パターン別） */
   mark_details?: MarkDetails;
-  /** この集計値自体のマークタイプ（user_agentでグループ化時のみ） */
-  mark_type?: "bot" | "suspicious" | "legitimate" | null;
+  /** この集計値自体のカテゴリ情報（user_agentでグループ化時のみ） */
+  mark_category?: LogMarkCategory | null;
   /** サンプルログ */
   sample_log?: SampleLog;
 }

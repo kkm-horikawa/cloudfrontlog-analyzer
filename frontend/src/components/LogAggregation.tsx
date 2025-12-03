@@ -13,13 +13,14 @@
  * - 集計結果から詳細ログへのドリルダウン
  */
 import { format } from 'date-fns';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CloudFrontService } from '../services/CloudFrontService';
 import type {
   AggregationItem,
   GroupByOption,
   LogAggregationResponse,
   LogEntry,
+  LogMarkCategory,
   MarkDetails,
   MarkStats,
   RawLogsResponse,
@@ -48,8 +49,9 @@ export default function LogAggregation() {
   const [minCount, setMinCount] = useState(1);
   const [excludeStaticFiles, setExcludeStaticFiles] = useState(false);
   const [filterJapanOnly, setFilterJapanOnly] = useState(false);
-  const [excludeBots, setExcludeBots] = useState(false);
-  const [excludeSuspicious, setExcludeSuspicious] = useState(false);
+  // カテゴリ除外フィルタ
+  const [categories, setCategories] = useState<LogMarkCategory[]>([]);
+  const [excludedCategories, setExcludedCategories] = useState<Set<string>>(new Set());
   // フィルタ用のstate
   const [clientIp, setClientIp] = useState('');
   const [uriPath, setUriPath] = useState('');
@@ -75,15 +77,15 @@ export default function LogAggregation() {
   // マーク内訳モーダルの状態
   const [markDetailsModal, setMarkDetailsModal] = useState<{
     isOpen: boolean;
-    markType: 'bot' | 'suspicious' | 'legitimate';
+    markType: string;
     markStats: MarkStats;
     markDetails: MarkDetails;
     totalRequests: number;
     sourceLabel?: string;
   }>({
     isOpen: false,
-    markType: 'bot',
-    markStats: { bot: 0, suspicious: 0, legitimate: 0, unmarked: 0 },
+    markType: '',
+    markStats: { unmarked: 0 },
     markDetails: {},
     totalRequests: 0,
   });
@@ -106,6 +108,39 @@ export default function LogAggregation() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /**
+   * ログマークカテゴリを読み込む
+   */
+  const loadCategories = async () => {
+    try {
+      const service = new CloudFrontService(profile);
+      const cats = await service.getLogMarkCategories();
+      setCategories(cats);
+    } catch (err) {
+      console.error('Failed to load categories:', err);
+    }
+  };
+
+  // 初期ロード時にカテゴリを取得
+  useEffect(() => {
+    loadCategories();
+  }, [profile]);
+
+  /**
+   * カテゴリ除外の切り替え
+   */
+  const toggleExcludeCategory = (slug: string) => {
+    setExcludedCategories(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(slug)) {
+        newSet.delete(slug);
+      } else {
+        newSet.add(slug);
+      }
+      return newSet;
+    });
   };
 
   /**
@@ -255,7 +290,7 @@ export default function LogAggregation() {
    * マーク内訳モーダルを開く
    */
   const handleOpenMarkDetails = (
-    markType: 'bot' | 'suspicious' | 'legitimate',
+    markType: string,
     markStats: MarkStats,
     markDetails: MarkDetails,
     totalRequests: number,
@@ -563,12 +598,12 @@ export default function LogAggregation() {
                   id="limit"
                   type="number"
                   min="1"
-                  max="10000"
+                  max="100000"
                   value={limit}
                   onChange={(e) => setLimit(Number(e.target.value))}
                   className="block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                 />
-                <p className="mt-1 text-xs text-gray-500">最大10000件まで</p>
+                <p className="mt-1 text-xs text-gray-500">最大100,000件まで</p>
               </div>
 
               <div>
@@ -616,31 +651,38 @@ export default function LogAggregation() {
                 </div>
               )}
 
-              <div className="flex items-center">
-                <input
-                  id="excludeBots"
-                  type="checkbox"
-                  checked={excludeBots}
-                  onChange={(e) => setExcludeBots(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="excludeBots" className="ml-2 block text-sm text-gray-700">
-                  ボットを除外
-                </label>
-              </div>
-
-              <div className="flex items-center">
-                <input
-                  id="excludeSuspicious"
-                  type="checkbox"
-                  checked={excludeSuspicious}
-                  onChange={(e) => setExcludeSuspicious(e.target.checked)}
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="excludeSuspicious" className="ml-2 block text-sm text-gray-700">
-                  疑わしいアクセスを除外
-                </label>
-              </div>
+              {/* カテゴリ除外フィルタ */}
+              {categories.length > 0 && (
+                <div className="flex items-center flex-wrap gap-2">
+                  <span className="text-sm text-gray-700">除外:</span>
+                  {categories.map((cat) => (
+                    <label
+                      key={cat.id}
+                      className={`inline-flex items-center px-2 py-1 rounded-md cursor-pointer border transition-colors ${
+                        excludedCategories.has(cat.slug)
+                          ? 'border-gray-400 bg-gray-100'
+                          : 'border-gray-200 bg-white hover:bg-gray-50'
+                      }`}
+                      style={{
+                        borderColor: excludedCategories.has(cat.slug) ? cat.color : undefined,
+                        backgroundColor: excludedCategories.has(cat.slug) ? `${cat.color}20` : undefined,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={excludedCategories.has(cat.slug)}
+                        onChange={() => toggleExcludeCategory(cat.slug)}
+                        className="sr-only"
+                      />
+                      <span
+                        className="w-3 h-3 rounded-full mr-1.5"
+                        style={{ backgroundColor: cat.color }}
+                      />
+                      <span className="text-sm text-gray-700">{cat.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
 
               <button
                 type="button"
@@ -698,17 +740,10 @@ export default function LogAggregation() {
             );
           }
 
-          // ボット除外フィルタ
-          if (excludeBots) {
+          // カテゴリ除外フィルタ
+          if (excludedCategories.size > 0) {
             filteredAggregations = filteredAggregations.filter(
-              (item) => item.mark_type !== 'bot'
-            );
-          }
-
-          // 疑わしいアクセス除外フィルタ
-          if (excludeSuspicious) {
-            filteredAggregations = filteredAggregations.filter(
-              (item) => item.mark_type !== 'suspicious'
+              (item) => !item.mark_category || !excludedCategories.has(item.mark_category.slug)
             );
           }
 
@@ -742,10 +777,20 @@ export default function LogAggregation() {
                         <span className="text-blue-600 font-normal ml-1">
                           (
                           {filterJapanOnly && groupBy === 'ip' && '日本のみ'}
-                          {filterJapanOnly && groupBy === 'ip' && (excludeBots || excludeSuspicious) && ', '}
-                          {excludeBots && 'ボット除外'}
-                          {excludeBots && excludeSuspicious && ', '}
-                          {excludeSuspicious && '疑わしいアクセス除外'}
+                          {filterJapanOnly && groupBy === 'ip' && excludedCategories.size > 0 && ', '}
+                          {excludedCategories.size > 0 && (
+                            <>
+                              {Array.from(excludedCategories).map((slug, index) => {
+                                const cat = categories.find(c => c.slug === slug);
+                                return (
+                                  <span key={slug}>
+                                    {index > 0 && ', '}
+                                    {cat?.name || slug}除外
+                                  </span>
+                                );
+                              })}
+                            </>
+                          )}
                           )
                         </span>
                       )}
@@ -756,57 +801,37 @@ export default function LogAggregation() {
                 {/* マーク統計情報 */}
                 {aggregationResponse.mark_stats && (
                   <div className="flex flex-wrap gap-2 pt-2 border-t border-blue-200 mt-2">
-                    {aggregationResponse.mark_stats.bot > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
-                          'bot',
-                          aggregationResponse.mark_stats!,
-                          aggregationResponse.mark_details,
-                          aggregationResponse.total_requests,
-                          '全体'
-                        )}
-                        disabled={!aggregationResponse.mark_details}
-                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-orange-100 text-orange-800 ${aggregationResponse.mark_details ? 'hover:bg-orange-200 cursor-pointer' : ''}`}
-                      >
-                        🤖 ボット: {aggregationResponse.mark_stats.bot.toLocaleString()} (
-                        {((aggregationResponse.mark_stats.bot / aggregationResponse.total_requests) * 100).toFixed(1)}%)
-                      </button>
-                    )}
-                    {aggregationResponse.mark_stats.suspicious > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
-                          'suspicious',
-                          aggregationResponse.mark_stats!,
-                          aggregationResponse.mark_details,
-                          aggregationResponse.total_requests,
-                          '全体'
-                        )}
-                        disabled={!aggregationResponse.mark_details}
-                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-red-100 text-red-800 ${aggregationResponse.mark_details ? 'hover:bg-red-200 cursor-pointer' : ''}`}
-                      >
-                        ⚠️ 警戒: {aggregationResponse.mark_stats.suspicious.toLocaleString()} (
-                        {((aggregationResponse.mark_stats.suspicious / aggregationResponse.total_requests) * 100).toFixed(1)}%)
-                      </button>
-                    )}
-                    {aggregationResponse.mark_stats.legitimate > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
-                          'legitimate',
-                          aggregationResponse.mark_stats!,
-                          aggregationResponse.mark_details,
-                          aggregationResponse.total_requests,
-                          '全体'
-                        )}
-                        disabled={!aggregationResponse.mark_details}
-                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 text-green-800 ${aggregationResponse.mark_details ? 'hover:bg-green-200 cursor-pointer' : ''}`}
-                      >
-                        ✓ 正常: {aggregationResponse.mark_stats.legitimate.toLocaleString()} (
-                        {((aggregationResponse.mark_stats.legitimate / aggregationResponse.total_requests) * 100).toFixed(1)}%)
-                      </button>
-                    )}
+                    {Object.entries(aggregationResponse.mark_stats)
+                      .filter(([slug, count]) => slug !== 'unmarked' && count > 0)
+                      .map(([slug, count]) => {
+                        const cat = categories.find(c => c.slug === slug);
+                        return (
+                          <button
+                            key={slug}
+                            type="button"
+                            onClick={() => aggregationResponse.mark_details && handleOpenMarkDetails(
+                              slug,
+                              aggregationResponse.mark_stats!,
+                              aggregationResponse.mark_details,
+                              aggregationResponse.total_requests,
+                              '全体'
+                            )}
+                            disabled={!aggregationResponse.mark_details}
+                            className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${aggregationResponse.mark_details ? 'hover:opacity-80 cursor-pointer' : ''}`}
+                            style={{
+                              backgroundColor: cat ? `${cat.color}20` : '#f3f4f6',
+                              color: cat?.color || '#374151',
+                            }}
+                          >
+                            <span
+                              className="w-2 h-2 rounded-full mr-1"
+                              style={{ backgroundColor: cat?.color || '#6b7280' }}
+                            />
+                            {cat?.name || slug}: {count.toLocaleString()} (
+                            {((count / aggregationResponse.total_requests) * 100).toFixed(1)}%)
+                          </button>
+                        );
+                      })}
                     {aggregationResponse.mark_stats.unmarked > 0 && (
                       <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-gray-100 text-gray-800">
                         未マーク: {aggregationResponse.mark_stats.unmarked.toLocaleString()} (
@@ -899,54 +924,36 @@ export default function LogAggregation() {
                           <td className="px-4 py-2 text-sm whitespace-nowrap">
                             {item.mark_stats && (
                               <div className="flex flex-wrap gap-1">
-                                {item.mark_stats.bot > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => item.mark_details && handleOpenMarkDetails(
-                                      'bot',
-                                      item.mark_stats!,
-                                      item.mark_details,
-                                      item.request_count,
-                                      `${getGroupByLabel(groupBy)}: ${item.value}`
-                                    )}
-                                    disabled={!item.mark_details}
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 ${item.mark_details ? 'hover:bg-orange-200 cursor-pointer' : ''}`}
-                                  >
-                                    🤖 {item.mark_stats.bot} ({((item.mark_stats.bot / item.request_count) * 100).toFixed(0)}%)
-                                  </button>
-                                )}
-                                {item.mark_stats.suspicious > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => item.mark_details && handleOpenMarkDetails(
-                                      'suspicious',
-                                      item.mark_stats!,
-                                      item.mark_details,
-                                      item.request_count,
-                                      `${getGroupByLabel(groupBy)}: ${item.value}`
-                                    )}
-                                    disabled={!item.mark_details}
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 ${item.mark_details ? 'hover:bg-red-200 cursor-pointer' : ''}`}
-                                  >
-                                    ⚠️ {item.mark_stats.suspicious} ({((item.mark_stats.suspicious / item.request_count) * 100).toFixed(0)}%)
-                                  </button>
-                                )}
-                                {item.mark_stats.legitimate > 0 && (
-                                  <button
-                                    type="button"
-                                    onClick={() => item.mark_details && handleOpenMarkDetails(
-                                      'legitimate',
-                                      item.mark_stats!,
-                                      item.mark_details,
-                                      item.request_count,
-                                      `${getGroupByLabel(groupBy)}: ${item.value}`
-                                    )}
-                                    disabled={!item.mark_details}
-                                    className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 ${item.mark_details ? 'hover:bg-green-200 cursor-pointer' : ''}`}
-                                  >
-                                    ✓ {item.mark_stats.legitimate} ({((item.mark_stats.legitimate / item.request_count) * 100).toFixed(0)}%)
-                                  </button>
-                                )}
+                                {Object.entries(item.mark_stats)
+                                  .filter(([slug, count]) => slug !== 'unmarked' && count > 0)
+                                  .map(([slug, count]) => {
+                                    const cat = categories.find(c => c.slug === slug);
+                                    return (
+                                      <button
+                                        key={slug}
+                                        type="button"
+                                        onClick={() => item.mark_details && handleOpenMarkDetails(
+                                          slug,
+                                          item.mark_stats!,
+                                          item.mark_details,
+                                          item.request_count,
+                                          `${getGroupByLabel(groupBy)}: ${item.value}`
+                                        )}
+                                        disabled={!item.mark_details}
+                                        className={`inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium ${item.mark_details ? 'hover:opacity-80 cursor-pointer' : ''}`}
+                                        style={{
+                                          backgroundColor: cat ? `${cat.color}20` : '#f3f4f6',
+                                          color: cat?.color || '#374151',
+                                        }}
+                                      >
+                                        <span
+                                          className="w-2 h-2 rounded-full mr-1"
+                                          style={{ backgroundColor: cat?.color || '#6b7280' }}
+                                        />
+                                        {count} ({((count / item.request_count) * 100).toFixed(0)}%)
+                                      </button>
+                                    );
+                                  })}
                                 {item.mark_stats.unmarked > 0 && (
                                   <span className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-800">
                                     - {item.mark_stats.unmarked} ({((item.mark_stats.unmarked / item.request_count) * 100).toFixed(0)}%)

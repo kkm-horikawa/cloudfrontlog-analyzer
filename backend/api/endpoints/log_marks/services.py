@@ -22,7 +22,12 @@ def get_log_marks_for_logs(
         Dict[str, Dict]: User Agentをキーとしたマーク情報の辞書
             例: {
                 "Mozilla/5.0 (compatible; Googlebot/2.1)": {
-                    "mark_type": "bot",
+                    "category": {
+                        "id": 1,
+                        "name": "ボット",
+                        "slug": "bot",
+                        "color": "#22C55E"
+                    },
                     "pattern": "Googlebot",
                     "note": "Google's crawler"
                 }
@@ -31,7 +36,7 @@ def get_log_marks_for_logs(
     Example:
         >>> logs = [{"userAgent": "Mozilla/5.0 (compatible; Googlebot/2.1)"}]
         >>> marks = get_log_marks_for_logs(logs, "E1234567890ABC")
-        >>> marks["Mozilla/5.0 (compatible; Googlebot/2.1)"]["mark_type"]
+        >>> marks["Mozilla/5.0 (compatible; Googlebot/2.1)"]["category"]["slug"]
         'bot'
     """
     if not logs:
@@ -48,7 +53,7 @@ def get_log_marks_for_logs(
         return {}
 
     # アクティブなパターンを取得
-    patterns = LogMarkPattern.objects.filter(is_active=True)
+    patterns = LogMarkPattern.objects.select_related("category").filter(is_active=True)
     if distribution_id:
         # distribution_id指定のパターンと全Distribution対象のパターン
         patterns = patterns.filter(
@@ -74,9 +79,14 @@ def get_log_marks_for_logs(
                 ):
                     matched_pattern = pattern
 
-        if matched_pattern:
+        if matched_pattern and matched_pattern.category:
             marks[user_agent] = {
-                "mark_type": matched_pattern.mark_type,
+                "category": {
+                    "id": matched_pattern.category.id,
+                    "name": matched_pattern.category.name,
+                    "slug": matched_pattern.category.slug,
+                    "color": matched_pattern.category.color,
+                },
                 "pattern": matched_pattern.user_agent_pattern,
                 "note": matched_pattern.note or "",
             }
@@ -132,7 +142,12 @@ def check_ip_is_bot(ip_address: str, distribution_id: Optional[str] = None) -> O
     Returns:
         Optional[Dict]: ボットの場合はマーク情報、そうでない場合はNone
             例: {
-                "mark_type": "bot",
+                "category": {
+                    "id": 1,
+                    "name": "ボット",
+                    "slug": "bot",
+                    "color": "#22C55E"
+                },
                 "pattern": "Anthropic",
                 "note": "Anthropic AI (Claude)"
             }
@@ -156,7 +171,9 @@ def check_ip_is_bot(ip_address: str, distribution_id: Optional[str] = None) -> O
         }
 
         # 登録されたorg_patternをチェック
-        patterns = LogMarkPattern.objects.filter(is_active=True, org_pattern__isnull=False)
+        patterns = LogMarkPattern.objects.select_related("category").filter(
+            is_active=True, org_pattern__isnull=False
+        )
         if distribution_id:
             patterns = patterns.filter(
                 django_models.Q(distribution_id=distribution_id)
@@ -165,9 +182,14 @@ def check_ip_is_bot(ip_address: str, distribution_id: Optional[str] = None) -> O
             )
 
         for pattern in patterns:
-            if pattern.matches(org_info=org_info):
+            if pattern.matches(org_info=org_info) and pattern.category:
                 return {
-                    "mark_type": pattern.mark_type,
+                    "category": {
+                        "id": pattern.category.id,
+                        "name": pattern.category.name,
+                        "slug": pattern.category.slug,
+                        "color": pattern.category.color,
+                    },
                     "pattern": pattern.org_pattern,
                     "note": pattern.note or f"{pattern.org_pattern} (組織マッチ)",
                 }

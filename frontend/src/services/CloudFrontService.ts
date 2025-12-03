@@ -17,6 +17,7 @@ import type {
   IPInfo,
   LogAggregationResponse,
   LogEntry,
+  LogMarkCategory,
   LogMarkPattern,
   MultiDeviceCheckResult,
   RawLogsResponse,
@@ -1067,24 +1068,149 @@ export class CloudFrontService {
   }
 
   /**
+   * ログマークカテゴリ一覧を取得
+   *
+   * 登録されているログマークカテゴリの一覧を取得します。
+   *
+   * @returns ログマークカテゴリの配列
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async getLogMarkCategories(): Promise<LogMarkCategory[]> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-mark-categories/`, {
+        headers: {
+          'X-Profile': this.profile,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching log mark categories:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークカテゴリを作成
+   *
+   * 新しいログマークカテゴリを登録します。
+   *
+   * @param category - 作成するカテゴリ情報
+   * @returns 作成されたカテゴリ
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async createLogMarkCategory(
+    category: Omit<LogMarkCategory, 'id' | 'created_at' | 'updated_at'>
+  ): Promise<LogMarkCategory> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-mark-categories/`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile': this.profile,
+        },
+        body: JSON.stringify(category),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error creating log mark category:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークカテゴリを更新
+   *
+   * 指定されたIDのログマークカテゴリを更新します。
+   *
+   * @param categoryId - 更新するカテゴリのID
+   * @param category - 更新するカテゴリ情報
+   * @returns 更新されたカテゴリ
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async updateLogMarkCategory(
+    categoryId: number,
+    category: Omit<LogMarkCategory, 'id' | 'created_at' | 'updated_at'>
+  ): Promise<LogMarkCategory> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-mark-categories/${categoryId}/`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Profile': this.profile,
+        },
+        body: JSON.stringify(category),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error updating log mark category:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * ログマークカテゴリを削除
+   *
+   * 指定されたIDのログマークカテゴリを削除します。
+   * 関連するパターンがある場合は削除できません。
+   *
+   * @param categoryId - 削除するカテゴリのID
+   * @throws APIエラーまたはネットワークエラー
+   */
+  async deleteLogMarkCategory(categoryId: number): Promise<void> {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/log-mark-categories/${categoryId}/`, {
+        method: 'DELETE',
+        headers: {
+          'X-Profile': this.profile,
+        },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      }
+    } catch (error) {
+      console.error('Error deleting log mark category:', error);
+      throw error;
+    }
+  }
+
+  /**
    * ログマークパターンを取得
    *
    * 登録されているログマークパターンの一覧を取得します。
-   * オプションでDistribution IDやマーク種別でフィルタリングできます。
+   * オプションでDistribution IDやカテゴリslugでフィルタリングできます。
    *
    * @param distributionId - Distribution IDでフィルタ（オプション）
-   * @param markType - マーク種別でフィルタ（オプション）
+   * @param category - カテゴリslugでフィルタ（オプション）
    * @returns ログマークパターンの配列
    * @throws APIエラーまたはネットワークエラー
    */
   async getLogMarkPatterns(
     distributionId?: string,
-    markType?: 'bot' | 'suspicious' | 'legitimate'
+    category?: string
   ): Promise<LogMarkPattern[]> {
     try {
       const params = new URLSearchParams();
       if (distributionId) params.append('distribution_id', distributionId);
-      if (markType) params.append('mark_type', markType);
+      if (category) params.append('category', category);
 
       const response = await fetch(
         `${API_BASE_URL}/api/log-marks/?${params.toString()}`,
@@ -1110,13 +1236,13 @@ export class CloudFrontService {
    * ログマークパターンを作成
    *
    * 新しいログマークパターンを登録します。
-   * User-Agentパターンに基づいてログを自動的にマーク（bot、suspicious、legitimate）します。
+   * カテゴリIDを指定してログを自動的にマークします。
    *
-   * @param pattern - 作成するログマークパターン
+   * @param pattern - 作成するログマークパターン（category_idを含む）
    * @returns 作成されたログマークパターン
    * @throws APIエラーまたはネットワークエラー
    */
-  async createLogMarkPattern(pattern: Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at'>): Promise<LogMarkPattern> {
+  async createLogMarkPattern(pattern: Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at' | 'category'>): Promise<LogMarkPattern> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/log-marks/`, {
         method: 'POST',
@@ -1145,13 +1271,13 @@ export class CloudFrontService {
    * 指定されたIDのログマークパターンを更新します。
    *
    * @param patternId - 更新するパターンのID
-   * @param pattern - 更新するパターン情報
+   * @param pattern - 更新するパターン情報（category_idを含む）
    * @returns 更新されたログマークパターン
    * @throws APIエラーまたはネットワークエラー
    */
   async updateLogMarkPattern(
     patternId: number,
-    pattern: Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at'>
+    pattern: Omit<LogMarkPattern, 'id' | 'created_at' | 'updated_at' | 'category'>
   ): Promise<LogMarkPattern> {
     try {
       const response = await fetch(`${API_BASE_URL}/api/log-marks/${patternId}/`, {

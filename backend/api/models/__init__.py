@@ -7,7 +7,7 @@ All models are exported from this module to maintain backward compatibility.
 from .access_log import AccessLog
 from .geo_log_cache import GeoLogCache
 from .ip_geolocation import IPGeolocation
-from .log_mark import LogMarkPattern
+from .log_mark import LogMarkCategory, LogMarkPattern
 from .processed_log_file import ProcessedLogFile
 from .waf_models import WAFBlockedIP
 from .waf_models import WAFBlockedIPSnapshot
@@ -19,5 +19,6 @@ __all__ = [
     "GeoLogCache",
     "ProcessedLogFile",
     "AccessLog",
+    "LogMarkCategory",
     "LogMarkPattern",
 ]

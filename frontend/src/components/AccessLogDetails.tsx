@@ -61,26 +61,29 @@ export function AccessLogDetails({
   const [isLoadingIpInfo, setIsLoadingIpInfo] = useState(false);
   const [ipInfoError, setIpInfoError] = useState<string | null>(null);
   const [hasAttemptedAutoFetch, setHasAttemptedAutoFetch] = useState(false);
-  const [isMarkingPattern, setIsMarkingPattern] = useState(false);
-  const [markPatternError, setMarkPatternError] = useState<string | null>(null);
-  const [markPatternSuccess, setMarkPatternSuccess] = useState<string | null>(null);
 
   /**
    * 日時フォーマット関数
    *
-   * UTC形式の日付と時刻をUTCとJST両方の形式にフォーマットします。
+   * バックエンドから返されるJST形式の日付と時刻をUTCとJST両方の形式にフォーマットします。
+   * バックエンドはログのUTC時刻を既にJSTに変換して返すため、
+   * UTC表示用にはJSTから9時間引く必要があります。
    *
-   * @param date - 日付文字列（YYYY-MM-DD形式）
-   * @param time - 時刻文字列（HH:MM:SS形式）
+   * @param date - 日付文字列（YYYY-MM-DD形式、JST）
+   * @param time - 時刻文字列（HH:MM:SS形式、JST）
    * @returns UTC形式とJST形式の日時オブジェクト
    */
   const formatDateTime = (date: string, time: string) => {
-    // Parse UTC time and convert to JST for display
-    const utcDateTime = new Date(`${date}T${time}Z`);
+    // バックエンドからの日時は既にJST
+    const jstString = `${date} ${time}`;
+
+    // JSTからUTCに変換（-9時間）
+    const jstDateTime = new Date(`${date}T${time}+09:00`);
+    const utcString = jstDateTime.toISOString().replace('T', ' ').slice(0, 19);
 
     return {
-      utc: `${date} ${time}`,
-      jst: utcDateTime.toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' }),
+      utc: utcString,
+      jst: jstString,
     };
   };
 
@@ -112,52 +115,6 @@ export function AccessLogDetails({
       setIsLoadingIpInfo(false);
     }
   }, [profile, entry.clientIp, ipInfo]);
-
-  /**
-   * User-Agentをマークする関数
-   *
-   * 指定されたマークタイプでUser-Agentパターンを作成します。
-   * パターンは部分一致で作成され、現在のDistribution IDに紐付けられます。
-   *
-   * @param markType - マークタイプ（bot、suspicious、legitimate）
-   */
-  const handleMarkAs = useCallback(
-    async (markType: 'bot' | 'suspicious' | 'legitimate') => {
-      setIsMarkingPattern(true);
-      setMarkPatternError(null);
-      setMarkPatternSuccess(null);
-
-      try {
-        const service = new CloudFrontService(profile);
-        await service.createLogMarkPattern({
-          distribution_id: distributionId,
-          user_agent_pattern: entry.userAgent,
-          match_type: 'partial',
-          mark_type: markType,
-          note: '',
-          is_active: true,
-        });
-
-        const markTypeLabel =
-          markType === 'bot' ? 'ボット' : markType === 'suspicious' ? '疑わしい' : '正常';
-        setMarkPatternSuccess(`パターンを「${markTypeLabel}」として登録しました`);
-
-        // Update the entry's mark information locally
-        entry.mark = {
-          mark_type: markType,
-          pattern: entry.userAgent,
-          note: '',
-        };
-      } catch (err) {
-        setMarkPatternError(
-          err instanceof Error ? err.message : 'マークパターンの登録に失敗しました'
-        );
-      } finally {
-        setIsMarkingPattern(false);
-      }
-    },
-    [profile, distributionId, entry]
-  );
 
   // 初回展開時にIP情報（WHOISを含む）を自動取得
   useEffect(() => {
@@ -516,14 +473,23 @@ export function AccessLogDetails({
                 </p>
                 {/* Mark buttons */}
                 {entry.mark ? (
-                  <div className="mt-2 p-2 bg-blue-50 border border-blue-200 rounded">
+                  <div
+                    className="mt-2 p-2 rounded border"
+                    style={{
+                      backgroundColor: `${entry.mark.category.color}15`,
+                      borderColor: `${entry.mark.category.color}40`,
+                    }}
+                  >
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-blue-800">
-                          マーク済み:
-                          {entry.mark.mark_type === 'bot' && ' 🤖 ボット'}
-                          {entry.mark.mark_type === 'suspicious' && ' ⚠️ 疑わしい'}
-                          {entry.mark.mark_type === 'legitimate' && ' ✅ 正常'}
+                        <span
+                          className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium"
+                          style={{
+                            backgroundColor: `${entry.mark.category.color}20`,
+                            color: entry.mark.category.color,
+                          }}
+                        >
+                          {entry.mark.category.name}
                         </span>
                         {entry.mark.note && (
                           <span className="text-xs text-gray-600">({entry.mark.note})</span>
@@ -532,39 +498,9 @@ export function AccessLogDetails({
                     </div>
                   </div>
                 ) : (
-                  <div className="mt-2 flex gap-2">
-                    <span className="text-xs text-gray-500 self-center">このUser-Agentをマーク:</span>
-                    <button
-                      type="button"
-                      onClick={() => handleMarkAs('bot')}
-                      className="px-2 py-1 text-xs font-medium text-orange-700 bg-orange-50 hover:bg-orange-100 rounded border border-orange-300 transition-colors"
-                      disabled={isMarkingPattern}
-                    >
-                      🤖 ボット
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleMarkAs('suspicious')}
-                      className="px-2 py-1 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 rounded border border-red-300 transition-colors"
-                      disabled={isMarkingPattern}
-                    >
-                      ⚠️ 疑わしい
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleMarkAs('legitimate')}
-                      className="px-2 py-1 text-xs font-medium text-green-700 bg-green-50 hover:bg-green-100 rounded border border-green-300 transition-colors"
-                      disabled={isMarkingPattern}
-                    >
-                      ✅ 正常
-                    </button>
+                  <div className="mt-2 text-xs text-gray-500">
+                    マークするにはログマーク管理画面からパターンを追加してください
                   </div>
-                )}
-                {markPatternError && (
-                  <p className="mt-1 text-xs text-red-600">{markPatternError}</p>
-                )}
-                {markPatternSuccess && (
-                  <p className="mt-1 text-xs text-green-600">{markPatternSuccess}</p>
                 )}
               </div>
 
