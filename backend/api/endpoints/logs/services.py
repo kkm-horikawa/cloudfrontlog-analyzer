@@ -1610,11 +1610,12 @@ class LogService(AWSServiceBase):
                 lambda ip: geo_info_map.get(ip)
             )
 
-        # 各集約にsample_log、mark_stats、mark_typeを追加
+        # 各集約にsample_log、mark_stats、mark_type、mark_detailsを追加
         from api.endpoints.log_marks.services import get_log_marks_for_logs
 
         sample_logs = []
         mark_stats_per_item = []
+        mark_details_per_item = []
         mark_types = []
 
         for value in agg_result["value"]:
@@ -1645,17 +1646,30 @@ class LogService(AWSServiceBase):
                 item_logs_for_marks.append({"userAgent": ua_str})
             item_marks = get_log_marks_for_logs(item_logs_for_marks, distribution_id)
 
-            # マークタイプ別にカウント
+            # マークタイプ別にカウント、パターン別の内訳も収集
             item_mark_stats = {"bot": 0, "suspicious": 0, "legitimate": 0, "unmarked": 0}
+            item_mark_details = {}  # パターン別の内訳
             for log in item_logs_for_marks:
                 user_agent = log.get("userAgent", "")
                 if user_agent and user_agent in item_marks:
-                    mark_type = item_marks[user_agent]["mark_type"]
+                    mark_info = item_marks[user_agent]
+                    mark_type = mark_info["mark_type"]
                     item_mark_stats[mark_type] = item_mark_stats.get(mark_type, 0) + 1
+
+                    # パターン別の内訳を記録
+                    pattern = mark_info.get("pattern", "unknown")
+                    if pattern not in item_mark_details:
+                        item_mark_details[pattern] = {
+                            "count": 0,
+                            "mark_type": mark_type,
+                            "note": mark_info.get("note", ""),
+                        }
+                    item_mark_details[pattern]["count"] += 1
                 else:
                     item_mark_stats["unmarked"] += 1
 
             mark_stats_per_item.append(item_mark_stats)
+            mark_details_per_item.append(item_mark_details)
 
             # この集計値自体のマークタイプを取得
             mark_type = None
@@ -1706,6 +1720,7 @@ class LogService(AWSServiceBase):
 
         agg_result["sample_log"] = sample_logs
         agg_result["mark_stats"] = mark_stats_per_item
+        agg_result["mark_details"] = mark_details_per_item
         agg_result["mark_type"] = mark_types
 
         # datetime列をJSTに変換
@@ -1728,13 +1743,25 @@ class LogService(AWSServiceBase):
         ).to_dict("records")
         marks = get_log_marks_for_logs(logs_for_marks, distribution_id)
 
-        # Count marks by type
+        # Count marks by type and collect pattern details
         mark_stats = {"bot": 0, "suspicious": 0, "legitimate": 0, "unmarked": 0}
+        mark_details = {}  # 全体のパターン別内訳
         for log in logs_for_marks:
             user_agent = log.get("userAgent", "")
             if user_agent and user_agent in marks:
-                mark_type = marks[user_agent]["mark_type"]
+                mark_info = marks[user_agent]
+                mark_type = mark_info["mark_type"]
                 mark_stats[mark_type] = mark_stats.get(mark_type, 0) + 1
+
+                # パターン別の内訳を記録
+                pattern = mark_info.get("pattern", "unknown")
+                if pattern not in mark_details:
+                    mark_details[pattern] = {
+                        "count": 0,
+                        "mark_type": mark_type,
+                        "note": mark_info.get("note", ""),
+                    }
+                mark_details[pattern]["count"] += 1
             else:
                 mark_stats["unmarked"] += 1
 
@@ -1750,6 +1777,7 @@ class LogService(AWSServiceBase):
             "unique_values": len(agg_result),
             "aggregations": aggregations,
             "mark_stats": mark_stats,
+            "mark_details": mark_details,
         }
 
         return response
