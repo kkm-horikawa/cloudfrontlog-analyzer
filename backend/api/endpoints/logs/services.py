@@ -1521,6 +1521,7 @@ class LogService(AWSServiceBase):
             "user_agent": "cs-user-agent",
             "referrer": "cs-referer",
             "query_string": "cs-uri-query",
+            "page_path": "cs-uri-stem",
         }
         group_column = group_column_map.get(group_by)
         if not group_column:
