@@ -78,6 +78,7 @@ USER_AGENT_BOT_PATTERNS = [
     {"pattern": "SEMrushBot", "note": "SEMrush クローラー"},
     {"pattern": "rogerbot", "note": "Moz SEOボット"},
     {"pattern": "BLEXBot", "note": "SE Ranking SEOクローラー"},
+    {"pattern": "SERankingBacklinksBot", "note": "SE Ranking バックリンクSEOクローラー"},
     # クローラー・スクレイピング
     {"pattern": "Scrapy", "note": "Scrapyフレームワーク"},
     {"pattern": "python-requests", "note": "Python requestsライブラリ"},
@@ -91,6 +92,7 @@ USER_AGENT_BOT_PATTERNS = [
     {"pattern": "Apache-HttpClient", "note": "Apache HTTPクライアント"},
     {"pattern": "Bytespider", "note": "ByteDance Bytespiderクローラー"},
     {"pattern": "Amazonbot", "note": "Amazon Alexaクローラー"},
+    {"pattern": "CriteoBot", "note": "Criteo広告クローラー"},
     {"pattern": "HeadlessChrome", "note": "ヘッドレスChromeブラウザ"},
     # その他のボット
     {"pattern": "IbouBot", "note": "ibou.ioボット"},
