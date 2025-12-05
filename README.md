@@ -50,6 +50,7 @@ cd backend
 uv sync                              # 依存関係インストール
 uv run python manage.py migrate      # DB初期化
 uv run python manage.py runserver    # サーバー起動 (http://localhost:8000)
+uv run python manage.py register_bot_patterns # デフォルトボットパターンを登録する場合
 ```
 
 ### 3. フロントエンド起動
