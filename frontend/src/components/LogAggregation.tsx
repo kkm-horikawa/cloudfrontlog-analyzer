@@ -45,7 +45,7 @@ export default function LogAggregation() {
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByOption>('ip');
-  const [limit, setLimit] = useState(1000);
+  const [limit, setLimit] = useState(100000);
   const [minCount, setMinCount] = useState(1);
   const [excludeStaticFiles, setExcludeStaticFiles] = useState(false);
   const [filterJapanOnly, setFilterJapanOnly] = useState(false);

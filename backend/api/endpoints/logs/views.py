@@ -572,7 +572,7 @@ class LogAggregationView(APIView):
                 - groupBy (str, required): グルーピングキー (ip, user_agent, referrer, query_string)
                 - startTime (str, optional): 開始時刻 JST (HH:MM:SS)
                 - endTime (str, optional): 終了時刻 JST (HH:MM:SS)
-                - limit (int, optional): 最大結果数 (デフォルト: 1000、最大: 10000)
+                - limit (int, optional): 最大結果数 (デフォルト: 100000、最大: 1000000)
                 - minCount (int, optional): 最小リクエスト数フィルタ (デフォルト: 1)
                 - excludeStaticFiles (bool, optional): 静的ファイルを除外 (デフォルト: false)
 
@@ -611,7 +611,7 @@ class LogAggregationView(APIView):
             "groupBy": request.query_params.get("groupBy"),
             "startTime": request.query_params.get("startTime"),
             "endTime": request.query_params.get("endTime"),
-            "limit": request.query_params.get("limit", 1000),
+            "limit": request.query_params.get("limit", 100000),
             "minCount": request.query_params.get("minCount", 1),
             "clientIp": request.query_params.get("clientIp", ""),
             "clientIps": client_ips,

@@ -1278,7 +1278,7 @@ class LogService(AWSServiceBase):
         group_by: str,
         start_time: Optional[str] = None,
         end_time: Optional[str] = None,
-        limit: int = 1000,
+        limit: int = 100000,
         min_count: int = 1,
         exclude_static_files: bool = False,
         client_ip: Optional[str] = None,
@@ -1304,7 +1304,7 @@ class LogService(AWSServiceBase):
                 例: "09:00:00"
             end_time (Optional[str]): 終了時刻（HH:MM:SS形式、JST）
                 例: "18:00:00"
-            limit (int, optional): 結果の最大件数（上位N件）。デフォルトは1000。
+            limit (int, optional): 結果の最大件数（上位N件）。デフォルトは100000。
             min_count (int, optional): 最小リクエスト数フィルタ。デフォルトは1。
             exclude_static_files (bool, optional): 静的ファイルを除外するか。デフォルトはFalse。
             client_ip (Optional[str]): 単一のクライアントIPでフィルタ
@@ -1569,45 +1569,33 @@ class LogService(AWSServiceBase):
         # request_countで降順にソート
         agg_result = agg_result.sort_values("request_count", ascending=False)
 
-        # ===== パフォーマンス最適化: 全データを一括処理 =====
+        # リミットを適用（上位N件）
+        agg_result = agg_result.head(limit)
 
-        # 1. 全User-Agentのマーク情報を一度だけ取得（キャッシュ）
-        from api.endpoints.log_marks.services import get_log_marks_for_logs
-
-        # combined_dfからユニークなUser-Agentを抽出
-        combined_df["cs-user-agent-str"] = combined_df["cs-user-agent"].apply(
-            lambda ua: str(ua) if ua is not None and str(ua) != "nan" else ""
-        )
-        unique_user_agents = combined_df["cs-user-agent-str"].unique().tolist()
-        all_logs_for_marks = [{"userAgent": ua} for ua in unique_user_agents if ua]
-        all_marks = get_log_marks_for_logs(all_logs_for_marks, distribution_id)
-
-        # 2. IP集約の場合、geo情報とorg情報を一括取得
-        geo_info_map = {}
-        org_info_map = {}
-        ip_mark_map = {}  # IPごとのマーク情報（組織ベース）
-
+        # IP集約用にgeo_infoを追加（limit適用後のみ処理）
+        ip_mark_map = {}  # IPごとのマーク情報（組織ベース）- 後でmark_category判定に再利用
         if group_by == "ip":
             from api.endpoints.ip_info.services import get_ip_info_batch
             from api.endpoints.ip_info.services import get_ip_info_from_db
-            from api.models import IPGeolocation
 
-            # limit適用前の全IPを取得（日本+未マーク優先のため）
-            all_ips = agg_result["value"].tolist()
+            unique_ips = agg_result["value"].tolist()
 
-            # DBにないIPをチェックして一括取得
+            # DBにないIPをチェック
             ips_not_in_db = []
-            for ip in all_ips:
+            for ip in unique_ips:
                 ip_info = get_ip_info_from_db(ip)
                 if not ip_info:
                     ips_not_in_db.append(ip)
 
+            # 不足しているIPを一括取得
             if ips_not_in_db:
                 print(f"Fetching {len(ips_not_in_db)} IPs not in DB...")
                 get_ip_info_batch(ips_not_in_db)
 
-            # 全IPのgeo情報とorg情報を一括取得
-            for ip in all_ips:
+            # すべてのIPに対してDBからgeo情報を取得
+            geo_info_map = {}
+            org_info_map = {}
+            for ip in unique_ips:
                 try:
                     ip_info = get_ip_info_from_db(ip)
                     if ip_info:
@@ -1619,7 +1607,7 @@ class LogService(AWSServiceBase):
                         org_info_map[ip] = {
                             "org": ip_info.get("org") or "",
                             "isp": ip_info.get("isp") or "",
-                            "asname": ip_info.get("as") or "",
+                            "asname": ip_info.get("asname") or "",
                         }
                 except Exception:
                     pass
@@ -1639,7 +1627,7 @@ class LogService(AWSServiceBase):
                 )
             org_patterns = list(org_patterns)
 
-            for ip in all_ips:
+            for ip in unique_ips:
                 org_info = org_info_map.get(ip)
                 if org_info:
                     for pattern in org_patterns:
@@ -1651,38 +1639,61 @@ class LogService(AWSServiceBase):
                                     "slug": pattern.category.slug,
                                     "color": pattern.category.color,
                                 },
-                                "pattern": pattern.org_pattern,
-                                "note": pattern.note or f"{pattern.org_pattern} (組織マッチ)",
                             }
                             break
 
-            # geo_info列を追加
             agg_result["geo_info"] = agg_result["value"].apply(
                 lambda ip: geo_info_map.get(ip)
             )
 
-        # 3. 各集計値ごとのUser-Agentとマーク情報を事前集計（pandasのgroupby活用）
-        # combined_dfにgroup_columnでgroup化して、各グループのUser-Agent別カウントを取得
-        grouped_ua_counts = combined_df.groupby([group_column, "cs-user-agent-str"]).size().reset_index(name="count")
+        # 各集約にsample_log、mark_stats、mark_type、mark_detailsを追加
+        from api.endpoints.log_marks.services import get_log_marks_for_logs
 
-        # グループごとのマーク統計を計算
-        item_stats_map = {}  # value -> {mark_stats, mark_details}
+        sample_logs = []
+        mark_stats_per_item = []
+        mark_details_per_item = []
+        mark_types = []
+
         for value in agg_result["value"]:
-            item_ua_counts = grouped_ua_counts[grouped_ua_counts[group_column] == value]
+            # サンプルログを取得
+            sample_df = combined_df[combined_df[group_column] == value].tail(1)
+            if not sample_df.empty:
+                sample_row = sample_df.iloc[0]
+                # datetimeをJSTに変換
+                sample_datetime_jst = sample_row["datetime"].tz_convert(jst)
+                sample_logs.append(
+                    {
+                        "date": sample_datetime_jst.strftime("%Y-%m-%d"),
+                        "time": sample_datetime_jst.strftime("%H:%M:%S"),
+                        "uri": sample_row.get("cs-uri-stem", ""),
+                        "status": int(sample_row.get("sc-status", 0)),
+                    }
+                )
+            else:
+                sample_logs.append(None)
 
-            item_mark_stats = {"unmarked": 0}
-            item_mark_details = {}
+            # この集計アイテムに関連するログのマーク統計を計算
+            item_df = combined_df[combined_df[group_column] == value]
+            # User-Agentを文字列化してからマーク取得
+            item_logs_for_marks = []
+            for ua in item_df["cs-user-agent"]:
+                # User-Agentを文字列に変換（NaNやNoneは空文字列に）
+                ua_str = str(ua) if ua is not None and str(ua) != "nan" else ""
+                item_logs_for_marks.append({"userAgent": ua_str})
+            item_marks = get_log_marks_for_logs(item_logs_for_marks, distribution_id)
 
-            for _, row in item_ua_counts.iterrows():
-                ua = row["cs-user-agent-str"]
-                count = row["count"]
-
-                if ua and ua in all_marks:
-                    mark_info = all_marks[ua]
+            # カテゴリ別にカウント、パターン別の内訳も収集
+            item_mark_stats = {"unmarked": 0}  # カテゴリslugをキーとして動的に追加
+            item_mark_details = {}  # パターン別の内訳
+            for log in item_logs_for_marks:
+                user_agent = log.get("userAgent", "")
+                if user_agent and user_agent in item_marks:
+                    mark_info = item_marks[user_agent]
                     category = mark_info.get("category", {})
                     category_slug = category.get("slug", "unknown") if category else "unknown"
-                    item_mark_stats[category_slug] = item_mark_stats.get(category_slug, 0) + count
+                    item_mark_stats[category_slug] = item_mark_stats.get(category_slug, 0) + 1
 
+                    # パターン別の内訳を記録
                     pattern = mark_info.get("pattern", "unknown")
                     if pattern not in item_mark_details:
                         item_mark_details[pattern] = {
@@ -1690,48 +1701,46 @@ class LogService(AWSServiceBase):
                             "category": category,
                             "note": mark_info.get("note", ""),
                         }
-                    item_mark_details[pattern]["count"] += count
+                    item_mark_details[pattern]["count"] += 1
                 else:
-                    item_mark_stats["unmarked"] += count
+                    item_mark_stats["unmarked"] += 1
 
-            item_stats_map[value] = {
-                "mark_stats": item_mark_stats,
-                "mark_details": item_mark_details,
-            }
+            mark_stats_per_item.append(item_mark_stats)
+            mark_details_per_item.append(item_mark_details)
 
-        # 4. 各集計値のmark_categoryを決定
-        mark_category_map = {}
-        for value in agg_result["value"]:
-            item_stats = item_stats_map.get(value, {"mark_stats": {"unmarked": 0}, "mark_details": {}})
-            item_mark_stats = item_stats["mark_stats"]
-            item_mark_details = item_stats["mark_details"]
+            # この集計値自体のカテゴリを取得
             mark_category = None
-
             if group_by == "user_agent":
+                # このUser-Agentのカテゴリを取得（文字列化）
                 value_str = str(value) if value is not None and str(value) != "nan" else ""
-                if value_str and value_str in all_marks:
-                    mark_category = all_marks[value_str].get("category")
+                test_log = [{"userAgent": value_str}]
+                value_marks = get_log_marks_for_logs(test_log, distribution_id)
+                if value_str and value_str in value_marks:
+                    mark_category = value_marks[value_str].get("category")
             elif group_by == "ip":
-                # 組織ベースの判定結果を使用
-                if value in ip_mark_map:
-                    mark_category = ip_mark_map[value].get("category")
+                # IPアドレスの場合、まず組織情報からボット判定（ip_mark_mapを再利用）
+                ip_str = str(value) if value is not None else None
+                if ip_str and ip_str in ip_mark_map:
+                    mark_category = ip_mark_map[ip_str].get("category")
                 else:
-                    # User-Agentベースで最も多いカテゴリを取得
+                    # 組織ベースで判定できない場合、mark_statsから最も多いカテゴリを取得
                     total_marked = sum(v for k, v in item_mark_stats.items() if k != "unmarked")
                     if total_marked > 0:
+                        # unmarked以外で最も多いカテゴリを取得
                         max_category_slug = max(
                             ((k, v) for k, v in item_mark_stats.items() if k != "unmarked"),
                             key=lambda x: x[1],
                             default=(None, 0)
                         )[0]
-                        if max_category_slug:
+                        # カテゴリ情報を取得するためにdetailsから探す
+                        if max_category_slug and max_category_slug in item_mark_stats:
                             for detail in item_mark_details.values():
                                 cat = detail.get("category", {})
                                 if cat and cat.get("slug") == max_category_slug:
                                     mark_category = cat
                                     break
             else:
-                # referrer、query_stringなど
+                # referrer、query_stringなどの場合、mark_statsから最も多いカテゴリを取得
                 total_marked = sum(v for k, v in item_mark_stats.items() if k != "unmarked")
                 if total_marked > 0:
                     max_category_slug = max(
@@ -1745,59 +1754,12 @@ class LogService(AWSServiceBase):
                             if cat and cat.get("slug") == max_category_slug:
                                 mark_category = cat
                                 break
+            mark_types.append(mark_category)
 
-            mark_category_map[value] = mark_category
-
-        # 5. IP集計の場合、日本+未マークを優先してソート・limit適用
-        if group_by == "ip":
-            agg_result["is_japan_unmarked"] = agg_result["value"].apply(
-                lambda ip: (
-                    geo_info_map.get(ip, {}).get("country_code") == "JP"
-                    and mark_category_map.get(ip) is None
-                )
-            )
-            agg_result = agg_result.sort_values(
-                ["is_japan_unmarked", "request_count"],
-                ascending=[False, False]
-            )
-            agg_result = agg_result.head(limit)
-            agg_result = agg_result.drop(columns=["is_japan_unmarked"])
-            # 表示用に再ソート
-            agg_result = agg_result.sort_values("request_count", ascending=False)
-        else:
-            agg_result = agg_result.head(limit)
-
-        # 6. サンプルログを取得（limit適用後のみ）
-        sample_logs = []
-        for value in agg_result["value"]:
-            sample_df = combined_df[combined_df[group_column] == value].tail(1)
-            if not sample_df.empty:
-                sample_row = sample_df.iloc[0]
-                sample_datetime_jst = sample_row["datetime"].tz_convert(jst)
-                sample_logs.append({
-                    "date": sample_datetime_jst.strftime("%Y-%m-%d"),
-                    "time": sample_datetime_jst.strftime("%H:%M:%S"),
-                    "uri": sample_row.get("cs-uri-stem", ""),
-                    "status": int(sample_row.get("sc-status", 0)),
-                })
-            else:
-                sample_logs.append(None)
-
-        # 7. 結果をDataFrameに設定
         agg_result["sample_log"] = sample_logs
-        agg_result["mark_stats"] = agg_result["value"].apply(
-            lambda v: item_stats_map.get(v, {"mark_stats": {"unmarked": 0}})["mark_stats"]
-        )
-        agg_result["mark_details"] = agg_result["value"].apply(
-            lambda v: item_stats_map.get(v, {"mark_details": {}})["mark_details"]
-        )
-        agg_result["mark_category"] = agg_result["value"].apply(
-            lambda v: mark_category_map.get(v)
-        )
-
-        # 一時列を削除
-        if "cs-user-agent-str" in combined_df.columns:
-            combined_df.drop(columns=["cs-user-agent-str"], inplace=True)
+        agg_result["mark_stats"] = mark_stats_per_item
+        agg_result["mark_details"] = mark_details_per_item
+        agg_result["mark_category"] = mark_types
 
         # datetime列をJSTに変換
         agg_result["first_seen"] = pd.to_datetime(
@@ -1810,20 +1772,25 @@ class LogService(AWSServiceBase):
         # Convert to list of dictionaries
         aggregations = agg_result.to_dict("records")
 
-        # 全体のマーク統計を計算（all_marksを再利用）
-        mark_stats = {"unmarked": 0}
-        mark_details = {}
+        # Calculate mark statistics
+        # Convert DataFrame to list of dicts for mark checking
+        logs_for_marks = combined_df[["cs-user-agent"]].rename(
+            columns={"cs-user-agent": "userAgent"}
+        ).to_dict("records")
+        marks = get_log_marks_for_logs(logs_for_marks, distribution_id)
 
-        # User-Agent別のカウントを使用して効率的に計算
-        ua_counts = combined_df.groupby("cs-user-agent").size().to_dict()
-        for ua, count in ua_counts.items():
-            ua_str = str(ua) if ua is not None and str(ua) != "nan" else ""
-            if ua_str and ua_str in all_marks:
-                mark_info = all_marks[ua_str]
+        # Count marks by category and collect pattern details
+        mark_stats = {"unmarked": 0}  # カテゴリslugをキーとして動的に追加
+        mark_details = {}  # 全体のパターン別内訳
+        for log in logs_for_marks:
+            user_agent = log.get("userAgent", "")
+            if user_agent and user_agent in marks:
+                mark_info = marks[user_agent]
                 category = mark_info.get("category", {})
                 category_slug = category.get("slug", "unknown") if category else "unknown"
-                mark_stats[category_slug] = mark_stats.get(category_slug, 0) + count
+                mark_stats[category_slug] = mark_stats.get(category_slug, 0) + 1
 
+                # パターン別の内訳を記録
                 pattern = mark_info.get("pattern", "unknown")
                 if pattern not in mark_details:
                     mark_details[pattern] = {
@@ -1831,9 +1798,9 @@ class LogService(AWSServiceBase):
                         "category": category,
                         "note": mark_info.get("note", ""),
                     }
-                mark_details[pattern]["count"] += count
+                mark_details[pattern]["count"] += 1
             else:
-                mark_stats["unmarked"] += count
+                mark_stats["unmarked"] += 1
 
         # レスポンスを構築
         response = {

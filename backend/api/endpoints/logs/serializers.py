@@ -163,7 +163,7 @@ class LogAggregationRequestSerializer(serializers.Serializer):
     )
     startTime = serializers.TimeField(required=False, allow_null=True)
     endTime = serializers.TimeField(required=False, allow_null=True)
-    limit = serializers.IntegerField(default=1000, min_value=1, max_value=10000)
+    limit = serializers.IntegerField(default=100000, min_value=1, max_value=1000000)
     minCount = serializers.IntegerField(default=1, min_value=1)
     excludeStaticFiles = serializers.BooleanField(default=False, required=False)
     # フィルタフィールド
