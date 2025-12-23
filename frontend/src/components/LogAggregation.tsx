@@ -220,6 +220,7 @@ export default function LogAggregation() {
       let userAgent: string | undefined;
       let referrer: string | undefined;
       let queryString: string | undefined;
+      let uriPath: string | undefined;
 
       if (groupBy === 'ip') {
         clientIp = value;
@@ -229,6 +230,8 @@ export default function LogAggregation() {
         referrer = value;
       } else if (groupBy === 'query_string') {
         queryString = value;
+      } else if (groupBy === 'page_path') {
+        uriPath = value;
       }
 
       const response = await service.listRawLogs(
@@ -236,7 +239,7 @@ export default function LogAggregation() {
         startDate,
         endDate,
         clientIp,
-        undefined,
+        uriPath,
         userAgent,
         referrer,
         queryString,
@@ -325,6 +328,7 @@ export default function LogAggregation() {
       user_agent: 'User Agent',
       referrer: 'Referrer',
       query_string: 'Query String',
+      page_path: 'ページパス',
     };
     return labels[groupByValue];
   };
@@ -443,6 +447,7 @@ export default function LogAggregation() {
                 <option value="user_agent">User Agent</option>
                 <option value="referrer">Referrer</option>
                 <option value="query_string">Query String</option>
+                <option value="page_path">ページパス</option>
               </select>
               <p className="mt-1 text-xs text-gray-500">ログを集計する単位を選択してください</p>
             </div>

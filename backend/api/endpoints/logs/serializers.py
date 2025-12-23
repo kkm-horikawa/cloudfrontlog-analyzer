@@ -159,7 +159,7 @@ class LogAggregationRequestSerializer(serializers.Serializer):
     startDate = serializers.DateField(required=True)
     endDate = serializers.DateField(required=True)
     groupBy = serializers.ChoiceField(
-        choices=["ip", "user_agent", "referrer", "query_string"], required=True
+        choices=["ip", "user_agent", "referrer", "query_string", "page_path"], required=True
     )
     startTime = serializers.TimeField(required=False, allow_null=True)
     endTime = serializers.TimeField(required=False, allow_null=True)

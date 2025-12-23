@@ -854,7 +854,7 @@ export interface LogAggregationResponse {
   /** 集計対象の日付範囲 */
   date_range: DateRange;
   /** グループ化キー */
-  group_by: 'ip' | 'user_agent' | 'referrer' | 'query_string';
+  group_by: 'ip' | 'user_agent' | 'referrer' | 'query_string' | 'page_path';
   /** 総リクエスト数 */
   total_requests: number;
   /** ユニークな値の数 */
@@ -873,4 +873,4 @@ export interface LogAggregationResponse {
  * ログ集計時に使用できるグループ化キーの型定義。
  * IP、User-Agent、Referrer、クエリ文字列のいずれかを指定できます。
  */
-export type GroupByOption = 'ip' | 'user_agent' | 'referrer' | 'query_string';
+export type GroupByOption = 'ip' | 'user_agent' | 'referrer' | 'query_string' | 'page_path';
